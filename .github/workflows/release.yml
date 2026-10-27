@@ -1,0 +1,67 @@
+# Publishes all three packages when a GitHub release is published.
+# No tokens: npm and PyPI use trusted publishing, the MCP registry uses GitHub OIDC.
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Publish plures
+        working-directory: js
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "plures@$V" version >/dev/null 2>&1; then echo "plures@$V is already published"; exit 0; fi
+          npm install --no-audit --no-fund
+          npm publish --provenance --access public
+      - name: Publish plures-mcp
+        working-directory: mcp
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "plures-mcp@$V" version >/dev/null 2>&1; then echo "plures-mcp@$V is already published"; exit 0; fi
+          npm install --no-audit --no-fund
+          npm publish --provenance --access public
+
+  pypi:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        working-directory: python
+        run: python -m pip install build && python -m build
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: python/dist/
+          skip-existing: true
+
+  mcp-registry:
+    needs: npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - name: Publish to the MCP registry
+        working-directory: mcp
+        run: |
+          ../mcp-publisher login github-oidc
+          ../mcp-publisher publish
