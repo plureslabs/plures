@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "plures"
+version = "1.0.0"
+description = "Human judgment as an API for AI agents. Send a decision to ID verified people and get their consensus back."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [{ name = "Plures Labs LLC", email = "hello@plures.si" }]
+keywords = ["human-in-the-loop", "hitl", "ai-agents", "human-review", "human-approval", "llm", "agents", "plures"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Intended Audience :: Developers",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://plures.si/developers"
+Documentation = "https://plures.si/docs"
+Source = "https://github.com/firelever/plures"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/plures"]

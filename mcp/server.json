@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.firelever/plures",
+  "title": "Plures",
+  "description": "Human in the loop for AI agents: ask ID verified people to check a decision before acting.",
+  "repository": { "url": "https://github.com/firelever/plures", "source": "github", "subfolder": "mcp" },
+  "websiteUrl": "https://plures.si/docs#mcp",
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "plures-mcp",
+      "version": "1.0.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        { "name": "PLURES_API_KEY", "description": "Your Plures API key. A free pk_test_ key works for trying it.", "isRequired": true, "isSecret": true },
+        { "name": "PLURES_BASE_URL", "description": "API base URL, defaults to https://plures.si", "isRequired": false }
+      ]
+    }
+  ]
+}

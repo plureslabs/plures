@@ -1,0 +1,50 @@
+{
+  "name": "plures-mcp",
+  "version": "1.0.0",
+  "mcpName": "io.github.firelever/plures",
+  "description": "MCP server for Plures: lets any AI agent ask ID verified people to check a decision before it acts.",
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "human-in-the-loop",
+    "hitl",
+    "ai-agents",
+    "human-review",
+    "human-approval",
+    "plures"
+  ],
+  "homepage": "https://plures.si/docs#mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/firelever/plures.git",
+    "directory": "mcp"
+  },
+  "license": "MIT",
+  "author": "Plures Labs LLC <hello@plures.si>",
+  "type": "module",
+  "bin": {
+    "plures-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --clean",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.0",
+    "plures": "^1.0.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsup": "^8.3.5",
+    "typescript": "^5.6.3"
+  }
+}

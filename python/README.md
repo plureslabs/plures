@@ -1,0 +1,57 @@
+# plures
+
+The official Python client for [Plures](https://plures.si): human judgment as an API for AI agents. Send a decision to ID verified people and get their consensus back before your agent acts. A human in the loop step you can call like any other API.
+
+```bash
+pip install plures
+```
+
+Python 3.8+, standard library only.
+
+## Use it
+
+```python
+from plures import Plures
+
+plures = Plures()  # reads PLURES_API_KEY, or Plures("pk_test_...")
+
+task = plures.verify(
+    "Does the invoice match the order?",
+    ["Matches", "Does not match"],
+    context="Order: 48 chairs, $4,218. Invoice: 48 chairs plus $180 freight, $4,398.",
+    verifiers=3,
+)
+result = task["result"]
+if result and result["agreement"] == 1:
+    print("Act on:", result["answer"])
+else:
+    print("Not unanimous: send to the team")
+```
+
+Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys complete at once with the first option (or `metadata["test_answer"]`) and never reach real people.
+
+## Production: webhooks
+
+```python
+plures.create_task(
+    "Should this customer get a refund?", ["Approve", "Decline"],
+    context=ticket_text, webhook_url="https://your.app/plures",
+    metadata={"order_id": order_id}, idempotency_key="refund-%s" % order_id,
+)
+
+# In your webhook handler (Flask shown), pass the raw body exactly as received
+from plures import verify_webhook
+event = verify_webhook(request.get_data(), request.headers.get("Plures-Signature"), WEBHOOK_SECRET)
+```
+
+## API
+
+- `create_task(question, options, idempotency_key=None, **fields)`: fields are `context`, `image_url`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default True), `webhook_url`, `metadata`, `expires_in`
+- `get_task(id)`, `list_tasks(status=None, limit=None, starting_after=None)`, `cancel_task(id)`
+- `wait_for(id, timeout=600, interval=3)`: poll until settled
+- `verify(question, options, timeout=600, **fields)`: create and wait
+- `verify_webhook(raw_body, signature_header, secret)`: check a webhook and return the event
+
+Errors raise `PluresError` with `.status` and `.type`. Server errors are retried twice.
+
+Examples for LangGraph and the OpenAI Agents SDK: [github.com/firelever/plures](https://github.com/firelever/plures/tree/main/examples). Full reference: [plures.si/docs](https://plures.si/docs).
