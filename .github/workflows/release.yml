@@ -67,6 +67,15 @@ jobs:
       - name: Install mcp-publisher
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+      - name: Wait until npm shows plures-mcp
+        working-directory: mcp
+        run: |
+          V=$(node -p "require('./package.json').version")
+          for i in $(seq 1 30); do
+            curl -sf "https://registry.npmjs.org/plures-mcp/$V" >/dev/null && exit 0
+            sleep 20
+          done
+          echo "plures-mcp@$V never appeared on npm"; exit 1
       - name: Publish to the MCP registry
         working-directory: mcp
         run: |
