@@ -51,4 +51,4 @@ Tasks are shown to strangers, so the agent is told not to include secrets or mor
 - `PLURES_API_KEY` (required)
 - `PLURES_BASE_URL` (optional, defaults to https://plures.si)
 
-MIT licensed. Source: [github.com/firelever/plures](https://github.com/firelever/plures).
+MIT licensed. Source: [github.com/plureslabs/plures](https://github.com/plureslabs/plures).

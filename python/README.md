@@ -54,4 +54,4 @@ event = verify_webhook(request.get_data(), request.headers.get("Plures-Signature
 
 Errors raise `PluresError` with `.status` and `.type`. Server errors are retried twice.
 
-Examples for LangGraph and the OpenAI Agents SDK: [github.com/firelever/plures](https://github.com/firelever/plures/tree/main/examples). Full reference: [plures.si/docs](https://plures.si/docs).
+Examples for LangGraph and the OpenAI Agents SDK: [github.com/plureslabs/plures](https://github.com/plureslabs/plures/tree/main/examples). Full reference: [plures.si/docs](https://plures.si/docs).
