@@ -1,5 +1,6 @@
 # Publishes all three packages when a GitHub release is published.
-# No tokens: npm and PyPI use trusted publishing, the MCP registry uses GitHub OIDC.
+# PyPI uses trusted publishing and the MCP registry uses GitHub OIDC. npm uses trusted
+# publishing too once it is set up on npmjs.com; until then, the NPM_TOKEN secret.
 name: Release
 
 on:
@@ -21,8 +22,12 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+      - name: Use npm 11 (needed for trusted publishing)
+        run: npm install -g npm@11.6.0
       - name: Publish plures
         working-directory: js
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "plures@$V" version >/dev/null 2>&1; then echo "plures@$V is already published"; exit 0; fi
@@ -30,6 +35,8 @@ jobs:
           npm publish --provenance --access public
       - name: Publish plures-mcp
         working-directory: mcp
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "plures-mcp@$V" version >/dev/null 2>&1; then echo "plures-mcp@$V is already published"; exit 0; fi
