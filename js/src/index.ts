@@ -2,7 +2,7 @@
 // (Node 18+, Bun, Deno, edge runtimes). No dependencies. https://plures.si/docs
 
 export type Option = { id: string; label: string };
-/** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per decision live). */
+/** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per internal vote live). */
 export type Route = "verifiers" | "team";
 export type TaskStatus = "pending" | "completed" | "expired" | "canceled";
 export type Result = {
@@ -12,9 +12,18 @@ export type Result = {
   /** The team member who decided, when decided_by is "team". */
   reviewer?: string;
   note?: string;
+  /** How your team voted, when your team decided. */
+  team?: TeamTally;
 };
+export type TeamVote = { reviewer: string; answer: string; note: string | null; confirmed: boolean; lead: boolean };
+export type TeamTally = {
+  votes: Record<string, number>; agreement: number; required: number; unanimous: boolean;
+  voters: TeamVote[]; decided_by_lead: boolean; agreed: boolean;
+};
+/** How your team decides: how many vote, whether they must all agree, a lead for splits, passkey confirmation. */
+export type Consensus = { votes: number; unanimous: boolean; lead: string | null; passkey: boolean };
 /** Set when the decision went to your team: straight there (team_only), or because verifiers didn't all agree or answer in time. */
-export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only"; escalated_at: string; verifiers: Result | null; team_deadline?: string };
+export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only"; escalated_at: string; verifiers: Result | null; team_deadline?: string; lead_called_at?: string };
 export type Task = {
   id: string; object: "task"; mode: "live" | "test"; status: TaskStatus;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
@@ -24,8 +33,9 @@ export type Task = {
   route?: Route; category?: string | null;
   /** The named team that decides, or null for your main team. */
   team?: string | null;
-  /** Live tasks only: price per answer and what answers have cost so far, in US cents. A task sent straight to your team is billed_as "team_decision". */
-  cost?: { per_answer_cents: number; answers_billed: number; total_cents: number; billed_as?: "answers" | "team_decision" } | null;
+  team_consensus?: { votes: number; unanimous: boolean; lead: boolean; passkey: boolean };
+  /** Live tasks only: price per answer and what answers have cost so far, in US cents. A task sent straight to your team is billed per internal vote, billed_as "internal_votes". */
+  cost?: { per_answer_cents: number; answers_billed: number; total_cents: number; billed_as?: "answers" | "internal_votes" } | null;
   /** Where this decision sits on the Plures ledger, once recorded. */
   ledger?: { seq: number; url: string } | null;
   webhook_url: string | null; created_at: string; completed_at: string | null; expires_at: string;
@@ -61,19 +71,23 @@ export type CreateTask = {
   category?: string;
   /** The name of one of your teams, like "Finance", instead of your main team. */
   team?: string;
+  /** How many people on the team vote; the majority decides. Default from the team. */
+  team_votes?: number;
+  /** Everyone who votes must agree, or it goes to the team's lead. */
+  team_unanimous?: boolean;
 };
 /** Your main team, named teams and rules by category. */
 export type RoutingRule = { category: string; route: Route; group: string | null; escalate_below: number | null };
 export type Routing = {
   object: "routing";
-  team: { emails: string[]; escalate_below: number };
-  groups: { name: string; emails: string[] }[];
+  team: { emails: string[]; escalate_below: number } & Consensus;
+  groups: ({ name: string; emails: string[] } & Consensus)[];
   rules: RoutingRule[];
-  team_decision_cents: number;
+  internal_vote_cents: number;
 };
 export type RoutingUpdate = {
-  team?: { emails?: string[]; escalate_below?: number };
-  groups?: { name: string; emails: string[] }[];
+  team?: { emails?: string[]; escalate_below?: number } & Partial<Consensus>;
+  groups?: ({ name: string; emails: string[] } & Partial<Consensus>)[];
   rules?: { category: string; route?: Route; group?: string | null; escalate_below?: number | null }[];
 };
 /** Whole number shares of test task outcomes that add up to 100. */
@@ -88,7 +102,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.5.0";
+export const VERSION = "1.6.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }

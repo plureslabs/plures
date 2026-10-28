@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -61,8 +61,10 @@ class Plures:
         presence_check (default True), webhook_url, metadata, expires_in (seconds),
         escalate (send to your team when verifiers don't agree enough) and
         escalate_below (0 to 1), route ("team" skips verified people and goes straight to
-        your team, $0.05 per decision live), category (matches your routing rules) and
-        team (the name of one of your teams). The result's decided_by is "verifiers" or "team".
+        your team, $0.05 per internal vote live), category (matches your routing rules),
+        team (the name of one of your teams), team_votes (how many of the team vote,
+        majority decides) and team_unanimous. The result's decided_by is "verifiers" or
+        "team"; result["team"] has how your team voted.
         """
         body = dict(fields, question=question, options=options)
         headers = {"idempotency-key": idempotency_key} if idempotency_key else None
@@ -95,8 +97,8 @@ class Plures:
 
     def set_routing(self, team=None, groups=None, rules=None):
         """Sets where tasks go. What you pass replaces what's there; what you leave out stays.
-        team: {"emails": [...], "escalate_below": 1}
-        groups: [{"name": "Finance", "emails": ["ap@acme.com"]}]
+        team: {"emails": [...], "escalate_below": 1, "votes": 3, "unanimous": False, "lead": "ops@acme.com", "passkey": True}
+        groups: [{"name": "Finance", "emails": ["ap@acme.com", "cfo@acme.com"], "votes": 2, "lead": "controller@acme.com"}]
         rules: [{"category": "refunds", "route": "team", "group": "Finance"}]"""
         body = {k: v for k, v in {"team": team, "groups": groups, "rules": rules}.items() if v is not None}
         return self._req("PUT", "/api/v1/routing", body)
