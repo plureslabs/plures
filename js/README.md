@@ -25,7 +25,7 @@ const task = await plures.verify({
 console.log(task.result?.answer, task.result?.agreement);
 ```
 
-Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys complete at once with the first option (or `metadata.test_answer`) and never reach real people.
+Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys complete at once with the first option (or `metadata.test_answer`) and never reach real people. Set `metadata.test_outcome` to `split`, `tie`, `expired` or `slow` to test the cases you route to your own team.
 
 ## Production: webhooks
 

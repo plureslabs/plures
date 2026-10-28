@@ -3,18 +3,33 @@
   "name": "io.github.plureslabs/plures",
   "title": "Plures",
   "description": "Human in the loop for AI agents: ask ID verified people to check a decision before acting.",
-  "repository": { "url": "https://github.com/plureslabs/plures", "source": "github", "subfolder": "mcp" },
+  "repository": {
+    "url": "https://github.com/plureslabs/plures",
+    "source": "github",
+    "subfolder": "mcp"
+  },
   "websiteUrl": "https://plures.si/docs#mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "plures-mcp",
-      "version": "1.0.0",
-      "transport": { "type": "stdio" },
+      "version": "1.0.1",
+      "transport": {
+        "type": "stdio"
+      },
       "environmentVariables": [
-        { "name": "PLURES_API_KEY", "description": "Your Plures API key. A free pk_test_ key works for trying it.", "isRequired": true, "isSecret": true },
-        { "name": "PLURES_BASE_URL", "description": "API base URL, defaults to https://plures.si", "isRequired": false }
+        {
+          "name": "PLURES_API_KEY",
+          "description": "Your Plures API key. A free pk_test_ key works for trying it.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "PLURES_BASE_URL",
+          "description": "API base URL, defaults to https://plures.si",
+          "isRequired": false
+        }
       ]
     }
   ]

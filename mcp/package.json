@@ -1,6 +1,6 @@
 {
   "name": "plures-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "mcpName": "io.github.plureslabs/plures",
   "description": "MCP server for Plures: lets any AI agent ask ID verified people to check a decision before it acts.",
   "keywords": [

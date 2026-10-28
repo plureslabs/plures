@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.0.0";
+const VERSION = "1.0.1";
 const KEY = process.env.PLURES_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;
@@ -22,7 +22,14 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "Act on the answer when agreement is 1; below that, treat it as uncertain and escalate or ask for more verifiers.",
 });
 
+const TEST_NOTE = "TEST MODE: this answer is simulated; no person saw the question. It always picks the first option, so don't act on it. Use a live key for real answers.";
+
 const fmt = (t: Task) => {
+  const text = describe(t);
+  return t.mode === "test" ? `${TEST_NOTE}\n${text}` : text;
+};
+
+const describe = (t: Task) => {
   const label = (id: string | null) => t.options.find((o) => o.id === id)?.label ?? id;
   if (t.status === "pending")
     return `Still waiting for people to answer. Task ${t.id}. Call get_human_answer with this task_id later.`;
@@ -32,7 +39,7 @@ const fmt = (t: Task) => {
   if (t.status === "expired") return `Task ${t.id} expired before enough people answered. Votes so far: ${votes}. Treat this as unverified.`;
   if (!r || r.answer === null) return `People were split${r?.tie ? " (a tie)" : ""}. Votes: ${votes}. Treat this as uncertain and escalate to a person on your team.`;
   const strength = r.agreement >= 1 ? "Everyone agreed, so it is safe to act on." : `Agreement is ${Math.round(r.agreement * 100)}%, so treat it as uncertain.`;
-  return `Verified people answered: ${label(r.answer)}. ${Math.round(r.agreement * r.answers)} of ${r.answers} agreed. ${strength} Votes: ${votes}.${t.mode === "test" ? " (Test mode: this answer is simulated, no real people saw it.)" : ""}`;
+  return `Verified people answered: ${label(r.answer)}. ${Math.round(r.agreement * r.answers)} of ${r.answers} agreed. ${strength} Votes: ${votes}.`;
 };
 
 const out = (t: Task) => ({
