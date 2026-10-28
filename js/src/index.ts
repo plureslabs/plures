@@ -50,6 +50,10 @@ export type CreateTask = {
   /** Agreement below which this task goes to your team, 0 to 1. Default from your dashboard. */
   escalate_below?: number;
 };
+/** Whole number shares of test task outcomes that add up to 100. */
+export type Mix = { unanimous?: number; split?: number; tie?: number; expired?: number };
+export type TestMix = { object: "test_mix"; mix: Mix | null; to_team_percent: number };
+
 /** Prepaid credit for live tasks, in US cents. */
 export type Balance = {
   object: "balance"; currency: "usd"; available_cents: number; held_cents: number; balance_cents: number;
@@ -58,7 +62,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.3.1";
+export const VERSION = "1.4.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
@@ -108,6 +112,18 @@ export class Plures {
         await sleep(opts.intervalMs ?? 3000);
       }
     },
+  };
+
+  /**
+   * Test keys only. How test tasks behave when they don't set metadata.test_outcome,
+   * so an agent running unchanged sends a share of decisions to your team.
+   * A single task can override it with metadata.test_mix.
+   */
+  testMix = {
+    get: () => this.req<TestMix>("GET", "/api/v1/test_mix"),
+    /** For example { unanimous: 70, split: 20, tie: 5, expired: 5 }. Pass null to turn it off. */
+    set: (mix: Mix | null) => this.req<TestMix>("PUT", "/api/v1/test_mix", { mix }),
+    clear: () => this.req<TestMix>("DELETE", "/api/v1/test_mix"),
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */

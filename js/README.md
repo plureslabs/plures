@@ -46,6 +46,7 @@ if (event.type === "task.completed" && event.data.result?.agreement === 1) {
 
 - `plures.tasks.create(params, { idempotencyKey? })`: send a task. Params: `question`, `options` (2 to 8, strings or `{ id, label }`), `context`, `image_url`, `audio_url` or `video_url` with `media_seconds` (a clip up to 180 seconds that people play through before answering), `sensitive`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default true), `webhook_url`, `metadata`, `expires_in`.
 - `plures.tasks.retrieve(id)`, `plures.tasks.list({ status?, limit?, starting_after? })`, `plures.tasks.cancel(id)`
+- `plures.testMix.set({ unanimous: 70, split: 20, tie: 5, expired: 5 })`, `.get()`, `.clear()`: with a test key, makes a share of test tasks split, tie or expire at random so you can test routing to your team without changing your agent. A task can override it with `metadata.test_mix`, and `metadata.test_outcome` beats both.
 - `plures.balance()`: your prepaid credit for live tasks, in cents. Live tasks cost $0.20 per answer (more for clips); a task that could cost more than your available credit throws a `PluresError` with `type` `insufficient_credits` (status 402).
 - `plures.tasks.waitFor(id, { timeoutMs?, intervalMs? })`: poll until settled
 - `plures.verify(params, { timeoutMs?, idempotencyKey? })`: create and wait

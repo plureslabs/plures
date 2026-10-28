@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -72,6 +72,20 @@ class Plures:
     def list_tasks(self, status=None, limit=None, starting_after=None):
         q = {k: v for k, v in {"status": status, "limit": limit, "starting_after": starting_after}.items() if v is not None}
         return self._req("GET", "/api/v1/tasks" + ("?" + urllib.parse.urlencode(q) if q else ""))
+
+    def get_test_mix(self):
+        """Test keys only. How test tasks behave when they don't set metadata.test_outcome."""
+        return self._req("GET", "/api/v1/test_mix")
+
+    def set_test_mix(self, mix):
+        """Test keys only. Shares that add up to 100, like {"unanimous": 70, "split": 20, "tie": 5, "expired": 5}.
+        Test tasks without metadata.test_outcome draw from it, so a share goes to your team. None turns it off.
+        A single task can override it with metadata={"test_mix": {...}}."""
+        return self._req("PUT", "/api/v1/test_mix", {"mix": mix})
+
+    def clear_test_mix(self):
+        """Test keys only. Turns the test mix off, so test tasks come back unanimous."""
+        return self._req("DELETE", "/api/v1/test_mix")
 
     def balance(self):
         """Your prepaid credit for live tasks, in US cents: available_cents, held_cents and auto_topup.
