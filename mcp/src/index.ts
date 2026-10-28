@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.3.0";
+const VERSION = "1.3.1";
 const KEY = process.env.PLURES_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;

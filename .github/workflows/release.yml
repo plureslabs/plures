@@ -1,6 +1,6 @@
-# Publishes all three packages when a GitHub release is published.
-# PyPI uses trusted publishing and the MCP registry uses GitHub OIDC. npm uses trusted
-# publishing too once it is set up on npmjs.com; until then, the NPM_TOKEN secret.
+# Publishes all three packages when a GitHub release is published, all without stored
+# tokens: PyPI and npm use trusted publishing and the MCP registry uses GitHub OIDC.
+# npm packages are staged and wait for Peter's approval on npmjs.com.
 name: Release
 
 on:
@@ -22,35 +22,29 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      - name: Use npm 11 (needed for trusted publishing)
-        run: npm install -g npm@11.6.0
-      - name: Publish plures
+      - name: Use npm 12 (staged publishing)
+        run: npm install -g npm@12
+      # No token: npm trusts this workflow through OIDC. Packages are staged, then
+      # Peter approves each one on npmjs.com with his security key before it goes public.
+      - name: Stage plures
         working-directory: js
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "plures@$V" version >/dev/null 2>&1; then echo "plures@$V is already published"; exit 0; fi
           npm install --no-audit --no-fund
-          npm publish --provenance --access public
-      - name: Wait until npm shows the plures version the MCP server needs
-        working-directory: js
-        run: |
-          V=$(node -p "require('./package.json').version")
-          for i in $(seq 1 30); do
-            curl -sf "https://registry.npmjs.org/plures/$V" >/dev/null && exit 0
-            sleep 20
-          done
-          echo "plures@$V never appeared on npm"; exit 1
-      - name: Publish plures-mcp
+          npm stage publish --access public
+      - name: Stage plures-mcp
         working-directory: mcp
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "plures-mcp@$V" version >/dev/null 2>&1; then echo "plures-mcp@$V is already published"; exit 0; fi
+          # Build against this commit's SDK, which may still be waiting for approval.
+          (cd ../js && npm pack --silent)
+          npm install --no-audit --no-fund --no-save ../js/plures-*.tgz
           npm install --no-audit --no-fund
-          npm publish --provenance --access public
+          npm stage publish --access public
+      - name: Approve on npm
+        run: echo "Staged. Approve each package at https://www.npmjs.com (Settings, or npm stage list) to publish it."
 
   pypi:
     runs-on: ubuntu-latest
@@ -71,6 +65,7 @@ jobs:
   mcp-registry:
     needs: npm
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - name: Install mcp-publisher
@@ -80,7 +75,8 @@ jobs:
         working-directory: mcp
         run: |
           V=$(node -p "require('./package.json').version")
-          for i in $(seq 1 30); do
+          # Waits up to two hours for the staged npm package to be approved.
+          for i in $(seq 1 360); do
             curl -sf "https://registry.npmjs.org/plures-mcp/$V" >/dev/null && exit 0
             sleep 20
           done
