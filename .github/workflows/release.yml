@@ -28,6 +28,8 @@ jobs:
       # Peter approves each one on npmjs.com with his security key before it goes public.
       - name: Stage plures
         working-directory: js
+        # A version already staged and waiting for approval can't be staged again; the MCP server still goes.
+        continue-on-error: true
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "plures@$V" version >/dev/null 2>&1; then echo "plures@$V is already published"; exit 0; fi

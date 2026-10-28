@@ -27,6 +27,8 @@ A `pk_test_` key answers instantly with a simulated result (always the first opt
 ## Tools
 
 **`ask_humans`**: send a judgment call to verified people.
+
+Set `route: "team"` to send a decision straight to your own team instead of verified people (for confidential or policy calls), `team` to pick one of your named teams, `team_votes` to have several of them vote, and `category` to let your routing rules decide. Live, each internal vote is $0.05.
 - `question` (required): what people should decide, answerable from the context alone
 - `options` (required): 2 to 8 possible answers
 - `context`: the material to judge, as plain text
