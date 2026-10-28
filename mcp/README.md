@@ -38,7 +38,7 @@ A `pk_test_` key answers instantly with a simulated result (always the first opt
 
 **`cancel_human_task`**: cancel a task that no longer matters.
 
-Each result tells the agent the answer, how many people agreed and whether it is safe to act on: unanimous answers are, anything less should be escalated.
+Each result tells the agent the answer, how many people agreed and whether it is safe to act on. If you've added your team at plures.si/dashboard/team, decisions verified people don't all agree on go to your team, and the agent gets their decision as the final answer.
 
 ## When agents should use it
 

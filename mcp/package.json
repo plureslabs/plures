@@ -1,6 +1,6 @@
 {
   "name": "plures-mcp",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "mcpName": "io.github.plureslabs/plures",
   "description": "MCP server for Plures: lets any AI agent ask ID verified people to check a decision before it acts.",
   "keywords": [
@@ -39,7 +39,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",
-    "plures": "^1.0.0",
+    "plures": "^1.1.0",
     "zod": "^3.25.0"
   },
   "devDependencies": {

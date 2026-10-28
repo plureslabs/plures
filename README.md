@@ -73,6 +73,7 @@ Your agent gets an `ask_humans` tool. Setup for Claude Desktop, Claude Code, Cur
 2. Plures shows it to several ID verified people (3 by default, up to 9). Each answers alone, and every answer is confirmed with Face ID, a fingerprint or a passkey.
 3. If they split, Plures asks more people until there's a majority or your limit.
 4. You get the answer, how strongly people agreed (`agreement`, 0 to 1) and the votes, by webhook or by polling.
+5. If they don't all agree and you've added your team in the dashboard, Plures emails your team a link to decide, and your agent gets their decision as the final answer (`decided_by: "team"`).
 
 Every verifier passes a one time government ID and selfie check and is scored continuously on hidden tasks with known answers. Verifiers never see your metadata.
 

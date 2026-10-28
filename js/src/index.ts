@@ -3,11 +3,20 @@
 
 export type Option = { id: string; label: string };
 export type TaskStatus = "pending" | "completed" | "expired" | "canceled";
-export type Result = { answer: string | null; label: string | null; agreement: number; answers: number; votes: Record<string, number>; tie?: boolean };
+export type Result = {
+  answer: string | null; label: string | null; agreement: number; answers: number; votes: Record<string, number>; tie?: boolean;
+  /** Who made the final call: verified people, or your team after verifiers didn't all agree. */
+  decided_by?: "verifiers" | "team";
+  /** The team member who decided, when decided_by is "team". */
+  reviewer?: string;
+  note?: string;
+};
+/** Set when verifiers didn't all agree and the decision went to your team. */
+export type Escalation = { reason: "split" | "tie" | "no_answer"; escalated_at: string; verifiers: Result | null; team_deadline?: string };
 export type Task = {
   id: string; object: "task"; mode: "live" | "test"; status: TaskStatus;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
-  options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; metadata: Record<string, unknown>;
+  options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; escalation?: Escalation | null; metadata: Record<string, unknown>;
   webhook_url: string | null; created_at: string; completed_at: string | null; expires_at: string;
 };
 export type CreateTask = {
@@ -23,10 +32,14 @@ export type CreateTask = {
   webhook_url?: string;
   metadata?: Record<string, unknown>;
   expires_in?: number;
+  /** Send to your team when verifiers don't agree enough. Default: on when you've added a team. */
+  escalate?: boolean;
+  /** Agreement below which this task goes to your team, 0 to 1. Default from your dashboard. */
+  escalate_below?: number;
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.0.0";
+export const VERSION = "1.1.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }

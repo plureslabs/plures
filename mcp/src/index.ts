@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.0.1";
+const VERSION = "1.1.0";
 const KEY = process.env.PLURES_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;
@@ -31,12 +31,16 @@ const fmt = (t: Task) => {
 
 const describe = (t: Task) => {
   const label = (id: string | null) => t.options.find((o) => o.id === id)?.label ?? id;
+  if (t.status === "pending" && t.escalation)
+    return `Verified people didn't all agree, so the decision went to your team, who decide within a day. Task ${t.id}. Call get_human_answer with this task_id later; don't act until it's decided.`;
   if (t.status === "pending")
     return `Still waiting for people to answer. Task ${t.id}. Call get_human_answer with this task_id later.`;
   if (t.status === "canceled") return `Task ${t.id} was canceled.`;
   const r = t.result;
   const votes = r ? Object.entries(r.votes).map(([k, v]) => `${label(k)}: ${v}`).join(", ") : "none";
   if (t.status === "expired") return `Task ${t.id} expired before enough people answered. Votes so far: ${votes}. Treat this as unverified.`;
+  if (r?.decided_by === "team" && r.answer !== null)
+    return `Your team decided: ${label(r.answer)}${r.reviewer ? ` (${r.reviewer})` : ""}, after verified people didn't all agree (${votes}). This is the final answer; act on it.${r.note ? ` Their note: "${r.note}"` : ""}`;
   if (!r || r.answer === null) return `People were split${r?.tie ? " (a tie)" : ""}. Votes: ${votes}. Treat this as uncertain and escalate to a person on your team.`;
   const strength = r.agreement >= 1 ? "Everyone agreed, so it is safe to act on." : `Agreement is ${Math.round(r.agreement * 100)}%, so treat it as uncertain.`;
   return `Verified people answered: ${label(r.answer)}. ${Math.round(r.agreement * r.answers)} of ${r.answers} agreed. ${strength} Votes: ${votes}.`;
@@ -44,7 +48,7 @@ const describe = (t: Task) => {
 
 const out = (t: Task) => ({
   content: [{ type: "text" as const, text: fmt(t) }],
-  structuredContent: { task_id: t.id, status: t.status, mode: t.mode, answer: t.result?.answer ?? null, label: t.result?.label ?? null, agreement: t.result?.agreement ?? null, answers: t.result?.answers ?? 0, votes: t.result?.votes ?? {} },
+  structuredContent: { task_id: t.id, status: t.status, mode: t.mode, decided_by: t.result?.decided_by ?? null, with_team: !!t.escalation && t.status === "pending", answer: t.result?.answer ?? null, label: t.result?.label ?? null, agreement: t.result?.agreement ?? null, answers: t.result?.answers ?? 0, votes: t.result?.votes ?? {} },
 });
 
 const fail = (e: unknown) => ({
@@ -76,7 +80,7 @@ const progressFor = (extra: { _meta?: { progressToken?: string | number }; sendN
   return (n: number) => extra.sendNotification({ method: "notifications/progress", params: { progressToken: token, progress: n, total, message: "Waiting for verified people to answer" } });
 };
 
-const result = { task_id: z.string(), status: z.string(), mode: z.string(), answer: z.string().nullable(), label: z.string().nullable(), agreement: z.number().nullable(), answers: z.number(), votes: z.record(z.number()) };
+const result = { task_id: z.string(), status: z.string(), mode: z.string(), decided_by: z.string().nullable(), with_team: z.boolean(), answer: z.string().nullable(), label: z.string().nullable(), agreement: z.number().nullable(), answers: z.number(), votes: z.record(z.number()) };
 
 server.registerTool("ask_humans", {
   title: "Ask verified humans",
