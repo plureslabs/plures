@@ -22,7 +22,7 @@ Get a free test key at [plures.si](https://plures.si/?for=developers#join), then
 
 Claude Code: `claude mcp add plures --env PLURES_API_KEY=pk_test_... -- npx -y plures-mcp`
 
-A `pk_test_` key answers instantly with a simulated result (always the first option, clearly marked as a test), so you can try the flow for free. A `pk_live_` key sends tasks to real verified people and is billed per answer.
+A `pk_test_` key answers instantly with a simulated result (always the first option, clearly marked as a test), so you can try the flow for free. A `pk_live_` key sends tasks to real verified people and is paid from prepaid credit at $0.20 per answer, more for recordings and videos by length. If credit runs out, the tool says so; add credit or turn on auto top up at plures.si/dashboard/billing.
 
 ## Tools
 

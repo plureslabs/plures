@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const KEY = process.env.PLURES_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;
@@ -88,7 +88,7 @@ server.registerTool("ask_humans", {
     "Send a decision to ID verified people before you act on it. Several people answer independently, each confirmed with Face ID, " +
     "and you get back the consensus answer and how strongly they agreed. Use it for judgment calls where being wrong is costly: " +
     "tone and intent, refunds and payments, whether two things match, moderation edge cases. Write the question so a stranger can answer it " +
-    "from the context alone, and never include secrets or more personal data than the decision needs. Live keys are billed per answer; test keys are free and simulated.",
+    "from the context alone, and never include secrets or more personal data than the decision needs. Live keys use prepaid credit at $0.20 per answer (clips cost more by length); test keys are free and simulated.",
   inputSchema: {
     question: z.string().min(3).max(1000).describe("What people should decide, e.g. \"Is this customer upset?\""),
     options: z.array(z.string().min(1).max(200)).min(2).max(8).describe("2 to 8 possible answers, e.g. [\"Yes\", \"No\"]"),

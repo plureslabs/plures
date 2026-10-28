@@ -18,6 +18,8 @@ export type Task = {
   question: string; context: string | null; image_url: string | null; instructions: string | null;
   audio_url?: string | null; video_url?: string | null; media_seconds?: number | null; sensitive?: boolean;
   options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; escalation?: Escalation | null; metadata: Record<string, unknown>;
+  /** Live tasks only: price per answer and what answers have cost so far, in US cents. */
+  cost?: { per_answer_cents: number; answers_billed: number; total_cents: number } | null;
   /** Where this decision sits on the Plures ledger, once recorded. */
   ledger?: { seq: number; url: string } | null;
   webhook_url: string | null; created_at: string; completed_at: string | null; expires_at: string;
@@ -48,9 +50,15 @@ export type CreateTask = {
   /** Agreement below which this task goes to your team, 0 to 1. Default from your dashboard. */
   escalate_below?: number;
 };
+/** Prepaid credit for live tasks, in US cents. */
+export type Balance = {
+  object: "balance"; currency: "usd"; available_cents: number; held_cents: number; balance_cents: number;
+  price_per_unit_cents: number; billing: "prepaid" | "invoice";
+  auto_topup: { enabled: boolean; below_cents: number; amount_cents: number };
+};
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.2.0";
+export const VERSION = "1.3.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
@@ -101,6 +109,9 @@ export class Plures {
       }
     },
   };
+
+  /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */
+  balance = () => this.req<Balance>("GET", "/api/v1/balance");
 
   /** Creates a task and waits for people to answer it. */
   async verify(params: CreateTask, opts: { timeoutMs?: number; idempotencyKey?: string } = {}) {

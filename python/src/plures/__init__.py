@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -72,6 +72,11 @@ class Plures:
     def list_tasks(self, status=None, limit=None, starting_after=None):
         q = {k: v for k, v in {"status": status, "limit": limit, "starting_after": starting_after}.items() if v is not None}
         return self._req("GET", "/api/v1/tasks" + ("?" + urllib.parse.urlencode(q) if q else ""))
+
+    def balance(self):
+        """Your prepaid credit for live tasks, in US cents: available_cents, held_cents and auto_topup.
+        A live task that could cost more than available_cents raises PluresError with type insufficient_credits."""
+        return self._req("GET", "/api/v1/balance")
 
     def cancel_task(self, task_id):
         return self._req("POST", "/api/v1/tasks/" + urllib.parse.quote(task_id) + "/cancel")

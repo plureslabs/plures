@@ -48,6 +48,7 @@ event = verify_webhook(request.get_data(), request.headers.get("Plures-Signature
 
 - `create_task(question, options, idempotency_key=None, **fields)`: fields are `context`, `image_url`, `audio_url` or `video_url` with `media_seconds` (a clip up to 180 seconds that people play through before answering), `sensitive`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default True), `webhook_url`, `metadata`, `expires_in`
 - `get_task(id)`, `list_tasks(status=None, limit=None, starting_after=None)`, `cancel_task(id)`
+- `balance()`: your prepaid credit for live tasks, in cents. Live tasks cost $0.20 per answer (more for clips); a task that could cost more than your available credit raises `PluresError` with `type` `insufficient_credits` (status 402).
 - `wait_for(id, timeout=600, interval=3)`: poll until settled
 - `verify(question, options, timeout=600, **fields)`: create and wait
 - `verify_webhook(raw_body, signature_header, secret)`: check a webhook and return the event
