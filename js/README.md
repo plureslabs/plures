@@ -44,7 +44,7 @@ if (event.type === "task.completed" && event.data.result?.agreement === 1) {
 
 ## API
 
-- `plures.tasks.create(params, { idempotencyKey? })`: send a task. Params: `question`, `options` (2 to 8, strings or `{ id, label }`), `context`, `image_url`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default true), `webhook_url`, `metadata`, `expires_in`.
+- `plures.tasks.create(params, { idempotencyKey? })`: send a task. Params: `question`, `options` (2 to 8, strings or `{ id, label }`), `context`, `image_url`, `audio_url` or `video_url` with `media_seconds` (a clip up to 180 seconds that people play through before answering), `sensitive`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default true), `webhook_url`, `metadata`, `expires_in`.
 - `plures.tasks.retrieve(id)`, `plures.tasks.list({ status?, limit?, starting_after? })`, `plures.tasks.cancel(id)`
 - `plures.tasks.waitFor(id, { timeoutMs?, intervalMs? })`: poll until settled
 - `plures.verify(params, { timeoutMs?, idempotencyKey? })`: create and wait

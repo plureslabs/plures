@@ -16,7 +16,10 @@ export type Escalation = { reason: "split" | "tie" | "no_answer"; escalated_at: 
 export type Task = {
   id: string; object: "task"; mode: "live" | "test"; status: TaskStatus;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
+  audio_url?: string | null; video_url?: string | null; media_seconds?: number | null; sensitive?: boolean;
   options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; escalation?: Escalation | null; metadata: Record<string, unknown>;
+  /** Where this decision sits on the Plures ledger, once recorded. */
+  ledger?: { seq: number; url: string } | null;
   webhook_url: string | null; created_at: string; completed_at: string | null; expires_at: string;
 };
 export type CreateTask = {
@@ -24,6 +27,14 @@ export type CreateTask = {
   options: (string | Option)[];
   context?: string;
   image_url?: string;
+  /** A recording people play through before answering, up to 3 minutes. Needs media_seconds. */
+  audio_url?: string;
+  /** A video people play through before answering, up to 3 minutes. Needs media_seconds. Not with audio_url. */
+  video_url?: string;
+  /** The clip's length in seconds, 1 to 180. Required with audio_url or video_url; pay scales with it. */
+  media_seconds?: number;
+  /** Disturbing content: only verifiers who opted in get it, behind a warning. Default false. */
+  sensitive?: boolean;
   instructions?: string;
   verifiers?: 1 | 3 | 5 | 7 | 9;
   max_verifiers?: number;
@@ -39,7 +50,7 @@ export type CreateTask = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.1.0";
+export const VERSION = "1.2.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }

@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
 const KEY = process.env.PLURES_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;
@@ -94,6 +94,10 @@ server.registerTool("ask_humans", {
     options: z.array(z.string().min(1).max(200)).min(2).max(8).describe("2 to 8 possible answers, e.g. [\"Yes\", \"No\"]"),
     context: z.string().max(20000).optional().describe("The material to judge, as plain text: the message, the invoice lines, the listing"),
     image_url: z.string().url().optional().describe("An https image shown with the question"),
+    audio_url: z.string().url().optional().describe("An https recording people listen to in full before answering, such as a call your voice agent handled. Up to 3 minutes; needs media_seconds"),
+    video_url: z.string().url().optional().describe("An https video (MP4) people watch in full before answering. Up to 3 minutes; needs media_seconds. Not with audio_url"),
+    media_seconds: z.number().int().min(1).max(180).optional().describe("Length of the audio or video in seconds. Required with a clip"),
+    sensitive: z.boolean().optional().describe("Set true for violent, graphic or disturbing content, so only people who opted in see it, behind a warning"),
     instructions: z.string().max(2000).optional().describe("Short guidance shown under the question"),
     verifiers: z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(7), z.literal(9)]).optional().describe("How many people answer. Default 3; use 5 for higher stakes"),
     wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe(`How long to wait for the answer before returning a task_id to check later. Default 45, up to ${MAX_WAIT}`),

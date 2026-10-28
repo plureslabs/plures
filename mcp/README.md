@@ -31,6 +31,8 @@ A `pk_test_` key answers instantly with a simulated result (always the first opt
 - `options` (required): 2 to 8 possible answers
 - `context`: the material to judge, as plain text
 - `image_url`, `instructions`
+- `audio_url` or `video_url` with `media_seconds`: a clip up to 3 minutes that people play through before answering
+- `sensitive`: disturbing content, shown only to people who opted in
 - `verifiers`: 1, 3, 5, 7 or 9 (default 3)
 - `wait_seconds`: how long to wait for the answer, 0 to 240 (default 45). If people haven't answered by then, the tool returns a `task_id` to check later.
 

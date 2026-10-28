@@ -46,7 +46,7 @@ event = verify_webhook(request.get_data(), request.headers.get("Plures-Signature
 
 ## API
 
-- `create_task(question, options, idempotency_key=None, **fields)`: fields are `context`, `image_url`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default True), `webhook_url`, `metadata`, `expires_in`
+- `create_task(question, options, idempotency_key=None, **fields)`: fields are `context`, `image_url`, `audio_url` or `video_url` with `media_seconds` (a clip up to 180 seconds that people play through before answering), `sensitive`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default True), `webhook_url`, `metadata`, `expires_in`
 - `get_task(id)`, `list_tasks(status=None, limit=None, starting_after=None)`, `cancel_task(id)`
 - `wait_for(id, timeout=600, interval=3)`: poll until settled
 - `verify(question, options, timeout=600, **fields)`: create and wait

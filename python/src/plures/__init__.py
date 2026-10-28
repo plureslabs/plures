@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -57,7 +57,7 @@ class Plures:
     def create_task(self, question, options, idempotency_key=None, **fields):
         """Sends a question to verified people.
 
-        fields: context, image_url, instructions, verifiers (odd, 1 to 9), max_verifiers,
+        fields: context, image_url, audio_url or video_url with media_seconds (1 to 180), sensitive, instructions, verifiers (odd, 1 to 9), max_verifiers,
         presence_check (default True), webhook_url, metadata, expires_in (seconds),
         escalate (send to your team when verifiers don't agree enough) and
         escalate_below (0 to 1). The result's decided_by is "verifiers" or "team".
