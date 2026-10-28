@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -60,7 +60,9 @@ class Plures:
         fields: context, image_url, audio_url or video_url with media_seconds (1 to 180), sensitive, instructions, verifiers (odd, 1 to 9), max_verifiers,
         presence_check (default True), webhook_url, metadata, expires_in (seconds),
         escalate (send to your team when verifiers don't agree enough) and
-        escalate_below (0 to 1). The result's decided_by is "verifiers" or "team".
+        escalate_below (0 to 1), route ("team" skips verified people and goes straight to
+        your team, $0.05 per decision live), category (matches your routing rules) and
+        team (the name of one of your teams). The result's decided_by is "verifiers" or "team".
         """
         body = dict(fields, question=question, options=options)
         headers = {"idempotency-key": idempotency_key} if idempotency_key else None
@@ -86,6 +88,18 @@ class Plures:
     def clear_test_mix(self):
         """Test keys only. Turns the test mix off, so test tasks come back unanimous."""
         return self._req("DELETE", "/api/v1/test_mix")
+
+    def get_routing(self):
+        """Your main team, named teams and rules by category."""
+        return self._req("GET", "/api/v1/routing")
+
+    def set_routing(self, team=None, groups=None, rules=None):
+        """Sets where tasks go. What you pass replaces what's there; what you leave out stays.
+        team: {"emails": [...], "escalate_below": 1}
+        groups: [{"name": "Finance", "emails": ["ap@acme.com"]}]
+        rules: [{"category": "refunds", "route": "team", "group": "Finance"}]"""
+        body = {k: v for k, v in {"team": team, "groups": groups, "rules": rules}.items() if v is not None}
+        return self._req("PUT", "/api/v1/routing", body)
 
     def balance(self):
         """Your prepaid credit for live tasks, in US cents: available_cents, held_cents and auto_topup.

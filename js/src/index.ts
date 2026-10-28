@@ -2,6 +2,8 @@
 // (Node 18+, Bun, Deno, edge runtimes). No dependencies. https://plures.si/docs
 
 export type Option = { id: string; label: string };
+/** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per decision live). */
+export type Route = "verifiers" | "team";
 export type TaskStatus = "pending" | "completed" | "expired" | "canceled";
 export type Result = {
   answer: string | null; label: string | null; agreement: number; answers: number; votes: Record<string, number>; tie?: boolean;
@@ -11,15 +13,19 @@ export type Result = {
   reviewer?: string;
   note?: string;
 };
-/** Set when verifiers didn't all agree and the decision went to your team. */
-export type Escalation = { reason: "split" | "tie" | "no_answer"; escalated_at: string; verifiers: Result | null; team_deadline?: string };
+/** Set when the decision went to your team: straight there (team_only), or because verifiers didn't all agree or answer in time. */
+export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only"; escalated_at: string; verifiers: Result | null; team_deadline?: string };
 export type Task = {
   id: string; object: "task"; mode: "live" | "test"; status: TaskStatus;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
   audio_url?: string | null; video_url?: string | null; media_seconds?: number | null; sensitive?: boolean;
   options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; escalation?: Escalation | null; metadata: Record<string, unknown>;
-  /** Live tasks only: price per answer and what answers have cost so far, in US cents. */
-  cost?: { per_answer_cents: number; answers_billed: number; total_cents: number } | null;
+  /** Where it went: verified people first, or straight to your team. */
+  route?: Route; category?: string | null;
+  /** The named team that decides, or null for your main team. */
+  team?: string | null;
+  /** Live tasks only: price per answer and what answers have cost so far, in US cents. A task sent straight to your team is billed_as "team_decision". */
+  cost?: { per_answer_cents: number; answers_billed: number; total_cents: number; billed_as?: "answers" | "team_decision" } | null;
   /** Where this decision sits on the Plures ledger, once recorded. */
   ledger?: { seq: number; url: string } | null;
   webhook_url: string | null; created_at: string; completed_at: string | null; expires_at: string;
@@ -49,9 +55,29 @@ export type CreateTask = {
   escalate?: boolean;
   /** Agreement below which this task goes to your team, 0 to 1. Default from your dashboard. */
   escalate_below?: number;
+  /** "team" skips verified people and sends it straight to your team. Default "verifiers". */
+  route?: Route;
+  /** A label your routing rules match on, like "refunds". */
+  category?: string;
+  /** The name of one of your teams, like "Finance", instead of your main team. */
+  team?: string;
+};
+/** Your main team, named teams and rules by category. */
+export type RoutingRule = { category: string; route: Route; group: string | null; escalate_below: number | null };
+export type Routing = {
+  object: "routing";
+  team: { emails: string[]; escalate_below: number };
+  groups: { name: string; emails: string[] }[];
+  rules: RoutingRule[];
+  team_decision_cents: number;
+};
+export type RoutingUpdate = {
+  team?: { emails?: string[]; escalate_below?: number };
+  groups?: { name: string; emails: string[] }[];
+  rules?: { category: string; route?: Route; group?: string | null; escalate_below?: number | null }[];
 };
 /** Whole number shares of test task outcomes that add up to 100. */
-export type Mix = { unanimous?: number; split?: number; tie?: number; expired?: number };
+export type Mix = { unanimous?: number; most?: number; split?: number; tie?: number; expired?: number };
 export type TestMix = { object: "test_mix"; mix: Mix | null; to_team_percent: number };
 
 /** Prepaid credit for live tasks, in US cents. */
@@ -62,7 +88,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.4.0";
+export const VERSION = "1.5.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
@@ -124,6 +150,15 @@ export class Plures {
     /** For example { unanimous: 70, split: 20, tie: 5, expired: 5 }. Pass null to turn it off. */
     set: (mix: Mix | null) => this.req<TestMix>("PUT", "/api/v1/test_mix", { mix }),
     clear: () => this.req<TestMix>("DELETE", "/api/v1/test_mix"),
+  };
+
+  /**
+   * Where tasks go. set() replaces what you send (team, groups or rules) and keeps the rest.
+   * For example { groups: [{ name: "Finance", emails: ["ap@acme.com"] }], rules: [{ category: "refunds", route: "team", group: "Finance" }] }.
+   */
+  routing = {
+    get: () => this.req<Routing>("GET", "/api/v1/routing"),
+    set: (update: RoutingUpdate) => this.req<Routing>("PUT", "/api/v1/routing", update),
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */
