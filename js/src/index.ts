@@ -25,7 +25,7 @@ export type Consensus = { votes: number; unanimous: boolean; lead: string | null
 /** Set when the decision went to your team: straight there (team_only), or because verifiers didn't all agree or answer in time. */
 export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only"; escalated_at: string; verifiers: Result | null; team_deadline?: string; lead_called_at?: string };
 export type Task = {
-  id: string; object: "task"; mode: "live" | "test"; status: TaskStatus;
+  id: string; object: "task"; app?: string | null; mode: "live" | "test"; status: TaskStatus;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
   audio_url?: string | null; video_url?: string | null; media_seconds?: number | null; sensitive?: boolean;
   options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; escalation?: Escalation | null; metadata: Record<string, unknown>;
@@ -75,6 +75,8 @@ export type CreateTask = {
   team_votes?: number;
   /** Everyone who votes must agree, or it goes to the team's lead. */
   team_unanimous?: boolean;
+  /** Which of your apps this task belongs to, like "support-agent". Defaults to the client's app, then your default app. */
+  app?: string;
 };
 /** Your main team, named teams and rules by category. */
 export type RoutingRule = { category: string; route: Route; group: string | null; escalate_below: number | null };
@@ -95,6 +97,9 @@ export type Mix = { unanimous?: number; most?: number; split?: number; tie?: num
 export type TestMix = { object: "test_mix"; mix: Mix | null; to_team_percent: number };
 
 /** Prepaid credit for live tasks, in US cents. */
+/** One agent or product on your account. Tasks, the ledger view and the map are kept per app. */
+export type App = { object: "app"; id: string; name: string; default: boolean; created_at: string; tasks_30d?: number; waiting?: number; last_task_at?: string | null };
+
 export type Balance = {
   object: "balance"; currency: "usd"; available_cents: number; held_cents: number; balance_cents: number;
   price_per_unit_cents: number; billing: "prepaid" | "invoice";
@@ -111,10 +116,13 @@ export class PluresError extends Error {
 export class Plures {
   private base: string;
   private apiKey: string;
-  constructor(apiKey?: string, opts: { baseUrl?: string } = {}) {
+  /** The app tasks go to when they don't name one. From opts.app or PLURES_APP. */
+  readonly app: string | null;
+  constructor(apiKey?: string, opts: { baseUrl?: string; app?: string } = {}) {
     const key = apiKey ?? (typeof process !== "undefined" ? process.env?.PLURES_API_KEY : undefined);
     if (!key) throw new Error("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join");
     this.apiKey = key;
+    this.app = opts.app ?? (typeof process !== "undefined" ? process.env?.PLURES_APP : undefined) ?? null;
     this.base = (opts.baseUrl ?? (typeof process !== "undefined" ? process.env?.PLURES_BASE_URL : undefined) ?? "https://plures.si").replace(/\/$/, "");
   }
 
@@ -122,7 +130,7 @@ export class Plures {
     for (let attempt = 0; ; attempt++) {
       const r = await fetch(this.base + path, {
         method,
-        headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": `plures-js/${VERSION}`, ...(body ? { "content-type": "application/json" } : {}), ...headers },
+        headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": `plures-js/${VERSION}`, ...(body ? { "content-type": "application/json" } : {}), ...(this.app ? { "plures-app": this.app } : {}), ...headers },
         body: body ? JSON.stringify(body) : undefined,
       });
       if (r.status >= 500 && attempt < 2) { await sleep(500 * 2 ** attempt); continue; }
@@ -137,7 +145,7 @@ export class Plures {
     create: (params: CreateTask, opts: { idempotencyKey?: string } = {}) =>
       this.req<Task>("POST", "/api/v1/tasks", params, opts.idempotencyKey ? { "idempotency-key": opts.idempotencyKey } : {}),
     retrieve: (id: string) => this.req<Task>("GET", `/api/v1/tasks/${encodeURIComponent(id)}`),
-    list: (params: { status?: TaskStatus; limit?: number; starting_after?: string } = {}) => {
+    list: (params: { status?: TaskStatus; limit?: number; starting_after?: string; app?: string } = {}) => {
       const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)]));
       return this.req<{ object: "list"; data: Task[]; has_more: boolean }>("GET", `/api/v1/tasks${q.size ? `?${q}` : ""}`);
     },
@@ -173,6 +181,18 @@ export class Plures {
   routing = {
     get: () => this.req<Routing>("GET", "/api/v1/routing"),
     set: (update: RoutingUpdate) => this.req<Routing>("PUT", "/api/v1/routing", update),
+  };
+
+  /** Your apps. Each agent you run can be its own app, with its own tasks, ledger view and map. */
+  apps = {
+    list: () => this.req<{ object: "list"; data: App[]; has_more: boolean }>("GET", "/api/v1/apps"),
+    /** { name: "Support agent" }, with an optional id like "support-agent". */
+    create: (params: { name: string; id?: string }) => this.req<App>("POST", "/api/v1/apps", params),
+    retrieve: (id: string) => this.req<App>("GET", `/api/v1/apps/${encodeURIComponent(id)}`),
+    /** Rename it, change its id (its tasks move with it), or make it the default. */
+    update: (id: string, params: { name?: string; id?: string; default?: true }) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, params),
+    /** Only an app with no tasks can be deleted. */
+    del: (id: string) => this.req<{ object: "app"; id: string; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(id)}`),
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */

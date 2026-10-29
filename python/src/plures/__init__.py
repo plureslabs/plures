@@ -24,7 +24,7 @@ class PluresError(Exception):
 
 
 class Plures:
-    def __init__(self, api_key=None, base_url=None, timeout=30):
+    def __init__(self, api_key=None, base_url=None, timeout=30, app=None):
         api_key = api_key or os.environ.get("PLURES_API_KEY")
         if not api_key:
             raise ValueError("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join")
@@ -32,12 +32,16 @@ class Plures:
         self.api_key = api_key
         self.base = base_url.rstrip("/")
         self.timeout = timeout
+        # The app tasks go to when they don't name one, like "support-agent".
+        self.app = app or os.environ.get("PLURES_APP") or None
 
     def _req(self, method, path, body=None, headers=None):
         data = json.dumps(body).encode() if body is not None else None
         h = {"authorization": "Bearer " + self.api_key, "user-agent": "plures-python/" + __version__}
         if data is not None:
             h["content-type"] = "application/json"
+        if self.app:
+            h["plures-app"] = self.app
         h.update(headers or {})
         for attempt in range(3):
             req = urllib.request.Request(self.base + path, data=data, method=method, headers=h)
@@ -63,7 +67,8 @@ class Plures:
         escalate_below (0 to 1), route ("team" skips verified people and goes straight to
         your team, $0.05 per internal vote live), category (matches your routing rules),
         team (the name of one of your teams), team_votes (how many of the team vote,
-        majority decides) and team_unanimous. The result's decided_by is "verifiers" or
+        majority decides), team_unanimous and app (which of your apps, like "support-agent";
+        defaults to the client's app). The result's decided_by is "verifiers" or
         "team"; result["team"] has how your team voted.
         """
         body = dict(fields, question=question, options=options)
@@ -73,8 +78,8 @@ class Plures:
     def get_task(self, task_id):
         return self._req("GET", "/api/v1/tasks/" + urllib.parse.quote(task_id))
 
-    def list_tasks(self, status=None, limit=None, starting_after=None):
-        q = {k: v for k, v in {"status": status, "limit": limit, "starting_after": starting_after}.items() if v is not None}
+    def list_tasks(self, status=None, limit=None, starting_after=None, app=None):
+        q = {k: v for k, v in {"status": status, "limit": limit, "starting_after": starting_after, "app": app}.items() if v is not None}
         return self._req("GET", "/api/v1/tasks" + ("?" + urllib.parse.urlencode(q) if q else ""))
 
     def get_test_mix(self):
@@ -102,6 +107,26 @@ class Plures:
         rules: [{"category": "refunds", "route": "team", "group": "Finance"}]"""
         body = {k: v for k, v in {"team": team, "groups": groups, "rules": rules}.items() if v is not None}
         return self._req("PUT", "/api/v1/routing", body)
+
+    def list_apps(self):
+        """Your apps, the default first. Each agent you run can be its own app."""
+        return self._req("GET", "/api/v1/apps")
+
+    def create_app(self, name, id=None):
+        """Creates an app. The id, like "support-agent", is made from the name if you leave it out."""
+        return self._req("POST", "/api/v1/apps", {k: v for k, v in {"name": name, "id": id}.items() if v is not None})
+
+    def get_app(self, app_id):
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app_id))
+
+    def update_app(self, app_id, name=None, id=None, default=None):
+        """Renames an app, changes its id (its tasks move with it), or makes it the default (default=True)."""
+        body = {k: v for k, v in {"name": name, "id": id, "default": default}.items() if v is not None}
+        return self._req("PATCH", "/api/v1/apps/" + urllib.parse.quote(app_id), body)
+
+    def delete_app(self, app_id):
+        """Deletes an app with no tasks."""
+        return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app_id))
 
     def balance(self):
         """Your prepaid credit for live tasks, in US cents: available_cents, held_cents and auto_topup.
