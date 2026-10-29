@@ -128,6 +128,23 @@ class Plures:
         """Deletes an app with no tasks."""
         return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app_id))
 
+    def map_guide(self):
+        """The steps a coding agent follows to map an app and draft its checks, as markdown."""
+        with urllib.request.urlopen(self.base + "/api/v1/map_guide", timeout=self.timeout) as r:
+            return r.read().decode()
+
+    def get_map(self, app):
+        """An app's latest agent map, with live numbers for each checkpoint."""
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map")
+
+    def upload_map(self, app, agent_map):
+        """Uploads a new version of an app's agent map: {"nodes": [...], "edges": [...], "checkpoints": [...]}."""
+        return self._req("PUT", "/api/v1/apps/" + urllib.parse.quote(app) + "/map", agent_map)
+
+    def set_checkpoint(self, app, checkpoint_id, status):
+        """Marks a suggested check "added", "dismissed" or "suggested"."""
+        return self._req("PATCH", "/api/v1/apps/" + urllib.parse.quote(app) + "/map/checkpoints/" + urllib.parse.quote(checkpoint_id), {"status": status})
+
     def balance(self):
         """Your prepaid credit for live tasks, in US cents: available_cents, held_cents and auto_topup.
         A live task that could cost more than available_cents raises PluresError with type insufficient_credits."""

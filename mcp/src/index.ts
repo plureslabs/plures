@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 const KEY = process.env.PLURES_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;
@@ -21,7 +21,9 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "moderating an edge case, or confirming a fact that needs human eyes. Don't use it for things you can check with code or a lookup. " +
     "Act on the answer when agreement is 1; below that, treat it as uncertain and escalate or ask for more verifiers. " +
     "For decisions only the company's own people should make (confidential data, policy calls, anything regulated), set route to team " +
-    "to send it straight to the developer's team instead of verified people.",
+    "to send it straight to the developer's team instead of verified people. " +
+    "When the user asks to map their app or agent for Plures, call get_mapping_guide, read the code the way it says, then call submit_agent_map. " +
+    "Never put source code, secrets or customer data in a map.",
 });
 
 const TEST_NOTE = "TEST MODE: this answer is simulated; no person saw the question. It always picks the first option, so don't act on it. Use a live key for real answers.";
@@ -124,6 +126,7 @@ server.registerTool("ask_humans", {
     category: z.string().max(64).optional().describe("A label the developer's routing rules match on, like \"refunds\"; the rule may choose the route and team"),
     team: z.string().max(40).optional().describe("The name of one of the developer's teams, like \"Finance\", to decide instead of the main team"),
     team_votes: z.number().int().min(1).max(10).optional().describe("With route team: how many people on the team vote; the majority decides"),
+    app: z.string().max(40).optional().describe("Which of the developer's apps this is for, like \"support-agent\". Default: PLURES_APP, then the default app"),
     wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe(`How long to wait for the answer before returning a task_id to check later. Default 45, up to ${MAX_WAIT}`),
   },
   outputSchema: result,
@@ -132,7 +135,8 @@ server.registerTool("ask_humans", {
   if (!plures) return noKey();
   try {
     const wait = wait_seconds ?? 45;
-    const created = await plures.tasks.create({ ...params, metadata: { source: "mcp" } } as Parameters<typeof plures.tasks.create>[0]);
+    const app = params.app ?? process.env.PLURES_APP;
+    const created = await plures.tasks.create({ ...params, ...(app ? { app } : {}), metadata: { source: "mcp" } } as Parameters<typeof plures.tasks.create>[0]);
     const t = created.status === "pending" && wait > 0 ? await settle(created.id, wait, progressFor(extra, Math.ceil(wait / 3))) : created;
     return out(t);
   } catch (e) { return fail(e); }
@@ -161,6 +165,70 @@ server.registerTool("cancel_human_task", {
 }, async ({ task_id }) => {
   if (!plures) return noKey();
   try { return out(await plures.tasks.cancel(task_id)); } catch (e) { return fail(e); }
+});
+
+// Agent maps use the API directly, so this server works with any installed SDK version.
+const BASE = (process.env.PLURES_BASE_URL ?? "https://plures.si").replace(/\/$/, "");
+async function api(method: string, path: string, body?: unknown) {
+  const r = await fetch(BASE + path, { method, headers: { authorization: `Bearer ${KEY}`, "user-agent": `plures-mcp/${VERSION}`, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new PluresError(data?.error?.message ?? `HTTP ${r.status}`, r.status, data?.error?.type ?? "api_error");
+  return data;
+}
+
+type MapOut = { app: string; version: number; name?: string | null; url?: string; nodes: { id: string; label: string; kind: string; risk?: string | null }[];
+  checkpoints: { id: string; at: string; why: string; category: string; status: string; stats?: { tasks: number; agreement: number | null; to_team: number; internal: number } }[] };
+
+const describeMap = (m: MapOut) => {
+  const label = (id: string) => m.nodes.find((n) => n.id === id)?.label ?? id;
+  const actions = m.nodes.filter((n) => n.kind === "action");
+  const checked = new Set(m.checkpoints.filter((c) => c.status !== "dismissed").map((c) => c.at));
+  const lines = m.checkpoints.map((c) => `- ${label(c.at)} (${c.category}): ${c.status}${c.stats?.tasks ? `, ${c.stats.tasks} checks in 30 days${c.stats.agreement != null ? `, ${Math.round(c.stats.agreement * 100)}% agreement` : ""}` : ""}. ${c.why}`);
+  const open = actions.filter((a) => a.risk === "high" && !checked.has(a.id)).map((a) => `- ${a.label}: high risk, no check`);
+  return [`${m.name ?? m.app}, version ${m.version}: ${m.nodes.length} steps, ${actions.length} actions with consequences.`, ...lines, ...open,
+    m.url ? `The developer can see it and try each check at ${m.url}` : ""].filter(Boolean).join("\n");
+};
+
+server.registerTool("get_mapping_guide", {
+  title: "Get the Plures mapping guide",
+  description: "Returns the steps for mapping the developer's AI agent for Plures: how to find its steps and actions, where to suggest a person checks, and how to draft each check. Call this first when asked to map an app for Plures.",
+  inputSchema: {},
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, async () => {
+  try { const r = await fetch(`${BASE}/api/v1/map_guide`); return { content: [{ type: "text" as const, text: await r.text() }] }; } catch (e) { return fail(e); }
+});
+
+server.registerTool("submit_agent_map", {
+  title: "Send an agent map to Plures",
+  description: "Uploads the map you made with get_mapping_guide: nodes, edges and checkpoints with drafted checks. Never include source code, secrets or customer data. If Plures names a problem, fix it and send again.",
+  inputSchema: {
+    map: z.object({
+      name: z.string().optional(), summary: z.string().optional(),
+      source: z.object({ repo: z.string().optional(), commit: z.string().optional(), tool: z.string().optional() }).optional(),
+      nodes: z.array(z.record(z.any())), edges: z.array(z.record(z.any())), checkpoints: z.array(z.record(z.any())),
+    }).describe("The agent map, as the guide describes"),
+    app: z.string().optional().describe("The app id, like support-agent. Default: the PLURES_APP environment variable, then the account's default app"),
+  },
+  annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+}, async ({ map, app }) => {
+  if (!KEY) return noKey();
+  const id = app ?? process.env.PLURES_APP ?? "default";
+  try { return { content: [{ type: "text" as const, text: describeMap(await api("PUT", `/api/v1/apps/${encodeURIComponent(id)}/map`, map)) }] }; } catch (e) { return fail(e); }
+});
+
+server.registerTool("get_agent_map", {
+  title: "Get an agent map",
+  description: "Returns an app's agent map from Plures: its checkpoints, which are added, and live numbers for each (checks in 30 days, agreement, how many went to the team).",
+  inputSchema: { app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app") },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, async ({ app }) => {
+  if (!KEY) return noKey();
+  const id = app ?? process.env.PLURES_APP ?? "default";
+  try {
+    const m = await api("GET", `/api/v1/apps/${encodeURIComponent(id)}/map`);
+    if (!m.version) return { content: [{ type: "text" as const, text: `${id} has no map yet. Call get_mapping_guide and follow it.` }] };
+    return { content: [{ type: "text" as const, text: describeMap(m) }] };
+  } catch (e) { return fail(e); }
 });
 
 await server.connect(new StdioServerTransport());

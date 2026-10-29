@@ -97,6 +97,14 @@ export type Mix = { unanimous?: number; most?: number; split?: number; tie?: num
 export type TestMix = { object: "test_mix"; mix: Mix | null; to_team_percent: number };
 
 /** Prepaid credit for live tasks, in US cents. */
+export type MapNode = { id: string; label: string; kind: "input" | "model" | "tool" | "action" | "data" | "output" | "human"; file?: string | null; line?: number | null; risk?: "low" | "medium" | "high" | null; note?: string | null };
+export type MapDraft = { question: string; options: string[]; show?: string[]; hide?: string[]; instructions?: string | null; route?: "verifiers" | "team"; team?: string | null; verifiers?: number; escalate_below?: number | null; example?: string | null };
+export type MapCheckpoint = { id?: string; at: string; why: string; category?: string; when?: string | null; status?: "suggested" | "added" | "dismissed"; draft?: MapDraft | null;
+  stats?: { tasks: number; done: number; agreement: number | null; to_team: number; internal: number; med_ms: number | null } };
+/** An agent map: the steps of one app's agent and where people check. Written by your coding agent; no source code. */
+export type AgentMap = { name?: string | null; summary?: string | null; source?: { repo?: string | null; commit?: string | null; tool?: string | null }; nodes: MapNode[]; edges: { from: string; to: string; label?: string | null }[]; checkpoints: MapCheckpoint[] };
+export type StoredAgentMap = AgentMap & { object: "agent_map"; app: string; version: number; created_at?: string; via?: string; url?: string };
+
 /** One agent or product on your account. Tasks, the ledger view and the map are kept per app. */
 export type App = { object: "app"; id: string; name: string; default: boolean; created_at: string; tasks_30d?: number; waiting?: number; last_task_at?: string | null };
 
@@ -118,10 +126,12 @@ export class Plures {
   private apiKey: string;
   /** The app tasks go to when they don't name one. From opts.app or PLURES_APP. */
   readonly app: string | null;
-  constructor(apiKey?: string, opts: { baseUrl?: string; app?: string } = {}) {
+  private ua: string;
+  constructor(apiKey?: string, opts: { baseUrl?: string; app?: string; userAgent?: string } = {}) {
     const key = apiKey ?? (typeof process !== "undefined" ? process.env?.PLURES_API_KEY : undefined);
     if (!key) throw new Error("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join");
     this.apiKey = key;
+    this.ua = opts.userAgent ?? `plures-js/${VERSION}`;
     this.app = opts.app ?? (typeof process !== "undefined" ? process.env?.PLURES_APP : undefined) ?? null;
     this.base = (opts.baseUrl ?? (typeof process !== "undefined" ? process.env?.PLURES_BASE_URL : undefined) ?? "https://plures.si").replace(/\/$/, "");
   }
@@ -130,7 +140,7 @@ export class Plures {
     for (let attempt = 0; ; attempt++) {
       const r = await fetch(this.base + path, {
         method,
-        headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": `plures-js/${VERSION}`, ...(body ? { "content-type": "application/json" } : {}), ...(this.app ? { "plures-app": this.app } : {}), ...headers },
+        headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": this.ua, ...(body ? { "content-type": "application/json" } : {}), ...(this.app ? { "plures-app": this.app } : {}), ...headers },
         body: body ? JSON.stringify(body) : undefined,
       });
       if (r.status >= 500 && attempt < 2) { await sleep(500 * 2 ** attempt); continue; }
@@ -193,6 +203,19 @@ export class Plures {
     update: (id: string, params: { name?: string; id?: string; default?: true }) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, params),
     /** Only an app with no tasks can be deleted. */
     del: (id: string) => this.req<{ object: "app"; id: string; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(id)}`),
+  };
+
+  /**
+   * Agent maps: where each app's agent needs a person. Your coding agent reads your code and
+   * writes the map; Plures gets only the map. guide() returns the steps it follows.
+   */
+  maps = {
+    guide: async () => { const r = await fetch(`${this.base}/api/v1/map_guide`); return r.text(); },
+    retrieve: (app: string) => this.req<StoredAgentMap>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map`),
+    /** Uploads a new version. Checks you already added or dismissed keep that. */
+    upload: (app: string, map: AgentMap) => this.req<StoredAgentMap>("PUT", `/api/v1/apps/${encodeURIComponent(app)}/map`, map),
+    setCheckpoint: (app: string, id: string, status: "added" | "dismissed" | "suggested") =>
+      this.req<StoredAgentMap>("PATCH", `/api/v1/apps/${encodeURIComponent(app)}/map/checkpoints/${encodeURIComponent(id)}`, { status }),
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */
