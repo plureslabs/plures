@@ -145,6 +145,57 @@ class Plures:
         """Marks a suggested check "added", "dismissed" or "suggested"."""
         return self._req("PATCH", "/api/v1/apps/" + urllib.parse.quote(app) + "/map/checkpoints/" + urllib.parse.quote(checkpoint_id), {"status": status})
 
+    # Quality: people grade a sample of your agent's outputs against a rubric, and compare two
+    # versions blind before you ship. Emails, phones, card numbers and SSNs are taken out first.
+
+    def sample(self, rubric, output, input=None, app=None, metadata=None, force=None):
+        """Send every output; the rubric's sample rate decides which ones people grade."""
+        body = {k: v for k, v in {"rubric": rubric, "output": output, "input": input, "app": app, "metadata": metadata, "force": force}.items() if v is not None}
+        return self._req("POST", "/api/v1/samples", body)
+
+    def compare(self, release, a, b, input=None, question=None, app=None, verifiers=None):
+        """A blind release check: a is the current version's output, b the new one's, for the same input."""
+        body = {k: v for k, v in {"release": release, "a": a, "b": b, "input": input, "question": question, "app": app, "verifiers": verifiers}.items() if v is not None}
+        return self._req("POST", "/api/v1/comparisons", body)
+
+    def get_release(self, release, app=None):
+        """How often people preferred the new version, with a 95% range and a verdict."""
+        return self._req("GET", "/api/v1/releases/" + urllib.parse.quote(release) + ("?app=" + urllib.parse.quote(app) if app else ""))
+
+    def list_rubrics(self, app=None):
+        return self._req("GET", "/api/v1/rubrics" + ("?app=" + urllib.parse.quote(app) if app else ""))
+
+    def create_rubric(self, name, question, options, sample_rate=None, verifiers=None, drift_points=None, instructions=None, webhook_url=None, app=None):
+        """options are grades, best first, like ["Good", "Okay", "Bad"]. sample_rate 0.05 grades 5% of outputs."""
+        body = {k: v for k, v in {"name": name, "question": question, "options": options, "sample_rate": sample_rate, "verifiers": verifiers,
+                                   "drift_points": drift_points, "instructions": instructions, "webhook_url": webhook_url, "app": app}.items() if v is not None}
+        return self._req("POST", "/api/v1/rubrics", body)
+
+    def get_rubric(self, name, app=None):
+        """A rubric and its quality: daily scores, this week against the four before, and whether it's drifting."""
+        return self._req("GET", "/api/v1/rubrics/" + urllib.parse.quote(name) + ("?app=" + urllib.parse.quote(app) if app else ""))
+
+    def update_rubric(self, name, app=None, **fields):
+        return self._req("PATCH", "/api/v1/rubrics/" + urllib.parse.quote(name) + ("?app=" + urllib.parse.quote(app) if app else ""), fields)
+
+    def delete_rubric(self, name, app=None):
+        return self._req("DELETE", "/api/v1/rubrics/" + urllib.parse.quote(name) + ("?app=" + urllib.parse.quote(app) if app else ""))
+
+    def export_graded(self, rubric, app=None, since=None):
+        """Graded samples as a list of dicts (input, output, grade, score, agreement), for fine tuning or evals."""
+        q = {k: v for k, v in {"app": app or self.app, "since": since}.items() if v}
+        h = {"authorization": "Bearer " + self.api_key, "user-agent": "plures-python/" + __version__}
+        req = urllib.request.Request(self.base + "/api/v1/rubrics/" + urllib.parse.quote(rubric) + "/export" + ("?" + urllib.parse.urlencode(q) if q else ""), headers=h)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                return [json.loads(line) for line in r.read().decode().splitlines() if line.strip()]
+        except urllib.error.HTTPError as e:
+            try:
+                err = json.loads(e.read()).get("error", {})
+            except Exception:
+                err = {}
+            raise PluresError(err.get("message", "HTTP %d" % e.code), e.code, err.get("type", "api_error"))
+
     def balance(self):
         """Your prepaid credit for live tasks, in US cents: available_cents, held_cents and auto_topup.
         A live task that could cost more than available_cents raises PluresError with type insufficient_credits."""

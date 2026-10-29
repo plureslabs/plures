@@ -105,6 +105,12 @@ export type MapCheckpoint = { id?: string; at: string; why: string; category?: s
 export type AgentMap = { name?: string | null; summary?: string | null; source?: { repo?: string | null; commit?: string | null; tool?: string | null }; nodes: MapNode[]; edges: { from: string; to: string; label?: string | null }[]; checkpoints: MapCheckpoint[] };
 export type StoredAgentMap = AgentMap & { object: "agent_map"; app: string; version: number; created_at?: string; via?: string; url?: string };
 
+export type Rubric = { object: "rubric"; name: string; app: string; question: string; options: string[]; instructions: string | null; sample_rate: number; verifiers: number; drift_points: number; webhook_url: string | null; seen: number; sampled: number; created_at: string;
+  quality?: { score: number | null; this_week: number | null; baseline: number | null; drift: boolean; graded_this_week: number; grades_this_week: Record<string, number>; days: { day: string; score: number | null; n: number }[] } };
+export type RubricParams = { name?: string; question?: string; options?: string[]; instructions?: string | null; sample_rate?: number; verifiers?: 1 | 3 | 5; drift_points?: number; webhook_url?: string | null; app?: string };
+export type Sample = { object: "sample"; rubric: string; sampled: boolean; sample_rate: number; redacted: Record<string, number>; task: Task | null };
+export type Release = { object: "release"; release: string; app: string; compared: number; b_wins: number; a_wins: number; ties: number; win_rate: number | null; low: number | null; high: number | null; verdict: string };
+
 /** One agent or product on your account. Tasks, the ledger view and the map are kept per app. */
 export type App = { object: "app"; id: string; name: string; default: boolean; created_at: string; tasks_30d?: number; waiting?: number; last_task_at?: string | null };
 
@@ -216,6 +222,35 @@ export class Plures {
     upload: (app: string, map: AgentMap) => this.req<StoredAgentMap>("PUT", `/api/v1/apps/${encodeURIComponent(app)}/map`, map),
     setCheckpoint: (app: string, id: string, status: "added" | "dismissed" | "suggested") =>
       this.req<StoredAgentMap>("PATCH", `/api/v1/apps/${encodeURIComponent(app)}/map/checkpoints/${encodeURIComponent(id)}`, { status }),
+  };
+
+  /**
+   * Quality: people grade a sample of your agent's outputs against a rubric, so you see drift
+   * early, and compare two versions blind before you ship. Personal details are taken out first.
+   */
+  quality = {
+    /** Send every output; the rubric's sample rate decides which ones people grade. */
+    sample: (p: { rubric: string; output: string; input?: string; app?: string; metadata?: Record<string, unknown>; force?: boolean }) => this.req<Sample>("POST", "/api/v1/samples", p),
+    /** A blind release check: a is the current version's output, b the new one's, for the same input. */
+    compare: (p: { release: string; a: string; b: string; input?: string; question?: string; instructions?: string; verifiers?: 1 | 3 | 5; app?: string; metadata?: Record<string, unknown> }) =>
+      this.req<{ object: "comparison"; release: string; task: Task }>("POST", "/api/v1/comparisons", p),
+    /** How often people preferred the new version, with a 95% range and a verdict. */
+    release: (name: string, opts: { app?: string } = {}) => this.req<Release>("GET", `/api/v1/releases/${encodeURIComponent(name)}${opts.app ? `?app=${encodeURIComponent(opts.app)}` : ""}`),
+    rubrics: {
+      list: (opts: { app?: string } = {}) => this.req<{ object: "list"; data: Rubric[]; has_more: boolean }>("GET", `/api/v1/rubrics${opts.app ? `?app=${encodeURIComponent(opts.app)}` : ""}`),
+      /** { name: "reply_quality", question: "Is this reply correct and kind?", options: ["Good", "Okay", "Bad"], sample_rate: 0.05 } */
+      create: (p: RubricParams & { name: string; question: string; options: string[] }) => this.req<Rubric>("POST", "/api/v1/rubrics", p),
+      retrieve: (name: string, opts: { app?: string } = {}) => this.req<Rubric>("GET", `/api/v1/rubrics/${encodeURIComponent(name)}${opts.app ? `?app=${encodeURIComponent(opts.app)}` : ""}`),
+      update: (name: string, p: RubricParams) => this.req<Rubric>("PATCH", `/api/v1/rubrics/${encodeURIComponent(name)}${p.app ? `?app=${encodeURIComponent(p.app)}` : ""}`, p),
+      del: (name: string, opts: { app?: string } = {}) => this.req<{ deleted: true }>("DELETE", `/api/v1/rubrics/${encodeURIComponent(name)}${opts.app ? `?app=${encodeURIComponent(opts.app)}` : ""}`),
+    },
+    /** Graded samples as JSON lines (input, output, grade, score, agreement), for fine tuning or an eval set. */
+    export: async (rubric: string, opts: { app?: string; since?: string } = {}) => {
+      const q = new URLSearchParams(Object.entries({ app: opts.app ?? this.app ?? undefined, since: opts.since }).filter(([, v]) => v) as [string, string][]);
+      const r = await fetch(`${this.base}/api/v1/rubrics/${encodeURIComponent(rubric)}/export${q.size ? `?${q}` : ""}`, { headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": this.ua } });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new PluresError(d?.error?.message ?? `HTTP ${r.status}`, r.status, d?.error?.type ?? "api_error"); }
+      return (await r.text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { task_id: string; rubric: string; input: string | null; output: string; grade: string | null; score: number | null; agreement: number | null; graders: number; graded_at: string; metadata: Record<string, unknown> });
+    },
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */
