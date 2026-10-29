@@ -121,7 +121,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.7.0";
+export const VERSION = "1.7.1";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
@@ -230,7 +230,7 @@ export class Plures {
    */
   quality = {
     /** Send every output; the rubric's sample rate decides which ones people grade. */
-    sample: (p: { rubric: string; output: string; input?: string; app?: string; metadata?: Record<string, unknown>; force?: boolean }) => this.req<Sample>("POST", "/api/v1/samples", p),
+    sample: (p: { rubric: string; output: string; input?: string; /** What produced it, like "prompt v14". */ version?: string; app?: string; metadata?: Record<string, unknown>; force?: boolean }) => this.req<Sample>("POST", "/api/v1/samples", p),
     /** A blind release check: a is the current version's output, b the new one's, for the same input. */
     compare: (p: { release: string; a: string; b: string; input?: string; question?: string; instructions?: string; verifiers?: 1 | 3 | 5; app?: string; metadata?: Record<string, unknown> }) =>
       this.req<{ object: "comparison"; release: string; task: Task }>("POST", "/api/v1/comparisons", p),

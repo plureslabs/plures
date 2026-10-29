@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -148,9 +148,10 @@ class Plures:
     # Quality: people grade a sample of your agent's outputs against a rubric, and compare two
     # versions blind before you ship. Emails, phones, card numbers and SSNs are taken out first.
 
-    def sample(self, rubric, output, input=None, app=None, metadata=None, force=None):
-        """Send every output; the rubric's sample rate decides which ones people grade."""
-        body = {k: v for k, v in {"rubric": rubric, "output": output, "input": input, "app": app, "metadata": metadata, "force": force}.items() if v is not None}
+    def sample(self, rubric, output, input=None, app=None, metadata=None, force=None, version=None):
+        """Send every output; the rubric's sample rate decides which ones people grade.
+        version names what produced it, like "prompt v14", so a drop can be traced to a change."""
+        body = {k: v for k, v in {"rubric": rubric, "output": output, "input": input, "version": version, "app": app, "metadata": metadata, "force": force}.items() if v is not None}
         return self._req("POST", "/api/v1/samples", body)
 
     def compare(self, release, a, b, input=None, question=None, app=None, verifiers=None):
