@@ -86,5 +86,12 @@ jobs:
       - name: Publish to the MCP registry
         working-directory: mcp
         run: |
+          # An SDK only release leaves plures-mcp unchanged; the registry refuses a version it already has.
+          NAME=$(node -p "require('./server.json').name")
+          V=$(node -p "require('./server.json').version")
+          curl -sf "https://registry.modelcontextprotocol.io/v0/servers?search=$NAME" -o listed.json || echo '{}' > listed.json
+          if node -e 'const [n, v] = process.argv.slice(1); const s = JSON.stringify(require("./listed.json")); process.exit(s.includes(`"name":"${n}"`) && s.includes(`"version":"${v}"`) ? 0 : 1)' "$NAME" "$V"; then
+            echo "$NAME $V is already in the MCP registry"; exit 0
+          fi
           ../mcp-publisher login github-oidc
           ../mcp-publisher publish
