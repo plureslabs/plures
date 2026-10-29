@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "plures"
-version = "1.6.0"
+version = "1.7.0"
 description = "Human judgment as an API for AI agents. Send a decision to ID verified people and get their consensus back."
 readme = "README.md"
 license = "MIT"
