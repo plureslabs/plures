@@ -3,12 +3,14 @@
 //   npx plures map [--app support-agent]        map with Claude Code if it's installed, then upload
 //   npx plures map upload [plures.map.json]     upload a map file your coding agent wrote
 //   npx plures map guide                         print the steps for any coding agent
+//   npx plures map workflow [--branch main]      add a GitHub Action that maps on every push
 import { spawnSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { Plures, PluresError, VERSION, type StoredAgentMap } from "./index.js";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => { const i = argv.indexOf(`--${name}`); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
+const branch = flag("branch");
 const app = flag("app") ?? process.env.PLURES_APP ?? "default";
 const key = flag("key") ?? process.env.PLURES_API_KEY;
 const base = flag("base-url") ?? process.env.PLURES_BASE_URL ?? "https://plures.si";
@@ -21,7 +23,7 @@ function die(msg: string): never { console.error(coral(msg)); process.exit(1); }
 
 function client() {
   if (!key) die("Set PLURES_API_KEY (a free pk_test_ key works), or pass --key. Get one at https://plures.si/?for=developers#join");
-  return new Plures(key, { baseUrl: base, app, userAgent: `plures-cli/${VERSION}` });
+  return new Plures(key, { baseUrl: base, app, userAgent: `plures-cli/${VERSION}${process.env.GITHUB_ACTIONS ? " github-actions" : ""}` });
 }
 
 async function upload(file: string) {
@@ -78,14 +80,32 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
   await upload(FILE);
 }
 
+// Writes the GitHub Action that maps this repo on every push. Its upload key goes in the repo's
+// secrets as PLURES_MAP_KEY: a map key, which can do nothing but upload this app's map.
+async function workflow() {
+  const def = spawnSync("git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { encoding: "utf8" }).stdout?.trim().replace(/^origin\//, "");
+  const b = branch ?? (def || "main");
+  const r = await fetch(`${base}/api/v1/map_workflow?app=${encodeURIComponent(app)}&branch=${encodeURIComponent(b)}`).catch(() => null);
+  if (!r?.ok) die("Couldn't reach Plures for the workflow. Check your connection.");
+  const path = ".github/workflows/plures-map.yml";
+  mkdirSync(".github/workflows", { recursive: true });
+  writeFileSync(path, await r.text());
+  console.log(`${bold("Wrote " + path)}: maps this repo on every push to ${b}.\n
+Then add two repository secrets (Settings, Secrets and variables, Actions):
+  ${cyan("PLURES_MAP_KEY")}      a map key: ${dim(`${base}/dashboard/apps/${app}/map`)} or ${dim("POST /api/v1/apps/" + app + "/map_keys")}
+  ${cyan("ANTHROPIC_API_KEY")}   or ${cyan("CLAUDE_CODE_OAUTH_TOKEN")} from ${dim("claude setup-token")}
+\nOr let Plures do all of this: ${bold("Map with GitHub")} on the app's map page.`);
+}
+
 async function main() {
   const [cmd, sub, arg] = argv;
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);
   if (sub === "guide") return void console.log(await (await fetch(`${base}/api/v1/map_guide`)).text());
+  if (sub === "workflow") return workflow();
   return map();
 }
 

@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -140,6 +140,22 @@ class Plures:
     def upload_map(self, app, agent_map):
         """Uploads a new version of an app's agent map: {"nodes": [...], "edges": [...], "checkpoints": [...]}."""
         return self._req("PUT", "/api/v1/apps/" + urllib.parse.quote(app) + "/map", agent_map)
+
+    def create_map_key(self, app, label=None):
+        """A key that can only read and upload this app's map, for CI. The key is in the response once."""
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_keys", {"label": label} if label else {})
+
+    def list_map_keys(self, app):
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_keys")
+
+    def revoke_map_key(self, app, key_id):
+        return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_keys/" + urllib.parse.quote(str(key_id)))
+
+    def map_workflow(self, app, branch="main"):
+        """The GitHub Actions workflow that maps a repo on every push to its main branch."""
+        url = self.base + "/api/v1/map_workflow?" + urllib.parse.urlencode({"app": app, "branch": branch})
+        with urllib.request.urlopen(url, timeout=self.timeout) as r:
+            return r.read().decode()
 
     def set_checkpoint(self, app, checkpoint_id, status):
         """Marks a suggested check "added", "dismissed" or "suggested"."""

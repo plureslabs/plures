@@ -103,6 +103,7 @@ export type MapCheckpoint = { id?: string; at: string; why: string; category?: s
   stats?: { tasks: number; done: number; agreement: number | null; to_team: number; internal: number; med_ms: number | null } };
 /** An agent map: the steps of one app's agent and where people check. Written by your coding agent; no source code. */
 export type AgentMap = { name?: string | null; summary?: string | null; source?: { repo?: string | null; commit?: string | null; tool?: string | null }; nodes: MapNode[]; edges: { from: string; to: string; label?: string | null }[]; checkpoints: MapCheckpoint[] };
+export type MapKey = { object: "map_key"; id: string; app: string; prefix: string; label: string | null; created_at: string; last_used_at: string | null };
 export type StoredAgentMap = AgentMap & { object: "agent_map"; app: string; version: number; created_at?: string; via?: string; url?: string };
 
 export type Rubric = { object: "rubric"; name: string; app: string; question: string; options: string[]; instructions: string | null; sample_rate: number; verifiers: number; drift_points: number; webhook_url: string | null; seen: number; sampled: number; created_at: string;
@@ -121,7 +122,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.7.1";
+export const VERSION = "1.8.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
@@ -222,6 +223,12 @@ export class Plures {
     upload: (app: string, map: AgentMap) => this.req<StoredAgentMap>("PUT", `/api/v1/apps/${encodeURIComponent(app)}/map`, map),
     setCheckpoint: (app: string, id: string, status: "added" | "dismissed" | "suggested") =>
       this.req<StoredAgentMap>("PATCH", `/api/v1/apps/${encodeURIComponent(app)}/map/checkpoints/${encodeURIComponent(id)}`, { status }),
+    /** A key that can only read and upload this app's map, for CI. The key is in the response once. */
+    createKey: (app: string, opts: { label?: string } = {}) => this.req<MapKey & { key: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`, opts),
+    keys: (app: string) => this.req<{ object: "list"; data: MapKey[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`),
+    revokeKey: (app: string, id: string) => this.req<{ object: "map_key"; id: string; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(app)}/map_keys/${encodeURIComponent(id)}`),
+    /** The GitHub Actions workflow that maps a repo on every push to its main branch. */
+    workflow: async (app: string, branch = "main") => { const r = await fetch(`${this.base}/api/v1/map_workflow?app=${encodeURIComponent(app)}&branch=${encodeURIComponent(branch)}`); return r.text(); },
   };
 
   /**
