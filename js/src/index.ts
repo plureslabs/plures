@@ -4,7 +4,8 @@
 export type Option = { id: string; label: string };
 /** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per internal vote live). */
 export type Route = "verifiers" | "team";
-export type TaskStatus = "pending" | "completed" | "expired" | "canceled";
+// skipped: a sampled check that wasn't picked this time; result.answer is the first option, go ahead.
+export type TaskStatus = "pending" | "completed" | "expired" | "canceled" | "skipped";
 export type Result = {
   answer: string | null; label: string | null; agreement: number; answers: number; votes: Record<string, number>; tie?: boolean;
   /** Who made the final call: verified people, or your team after verifiers didn't all agree. */
@@ -26,6 +27,8 @@ export type Consensus = { votes: number; unanimous: boolean; lead: string | null
 export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only"; escalated_at: string; verifiers: Result | null; team_deadline?: string; lead_called_at?: string };
 export type Task = {
   id: string; object: "task"; app?: string | null; mode: "live" | "test"; status: TaskStatus;
+  /** false when a sampled check didn't pick this task: it wasn't sent to people, and result.answer is the first option. */
+  sampled?: boolean;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
   audio_url?: string | null; video_url?: string | null; media_seconds?: number | null; sensitive?: boolean;
   options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; escalation?: Escalation | null; metadata: Record<string, unknown>;
@@ -122,7 +125,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.14.0";
+export const VERSION = "1.15.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;

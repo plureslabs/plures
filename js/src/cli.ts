@@ -88,7 +88,7 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
   }
   const pageUrl = `${base}/dashboard/apps/${encodeURIComponent(app)}/map`;
   if (fancy) {
-    banner(app, "Reading this repo on your machine with Claude Code. Only file names and the map go to Plures.");
+    banner(app, "Claude Code reads this repo on your machine for the Plures oversight engine. Only file names and the map go to Plures.");
     if (key && !noOpen && await openBrowser(pageUrl)) console.log(`  ${dim("Watch it live in your browser:")} ${cyan(pageUrl)}\n`);
   } else console.log(`Reading this repo ${process.env.CI ? "on this runner" : "on your machine"} with Claude Code. ${dim("Only the map is sent to Plures.")}\n`);
   const prompt = `${guide}\n\nWrite the map to ${FILE} in the current directory now, as JSON, with the Write tool. Read the code; don't run it or change anything else. Don't write a script to generate the map: you can't run scripts or other commands here, so write the JSON itself.`;

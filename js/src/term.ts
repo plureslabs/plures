@@ -75,7 +75,9 @@ export function drawMap(m: StoredAgentMap, url: string) {
   const chip = (id: string) => {
     const n = nodes.get(id)!, c = cps.get(id);
     const label = cut(n.label, 34);
-    const tag = !c ? "" : c.status === "added" ? `  ${C.cyan("✓ checked")}` : `  ${C.violet("◌ check suggested")}`;
+    const rate = (c?.draft as { sample?: number | null } | null | undefined)?.sample;
+    const often = rate ? `, 1 in ${Math.round(1 / rate)}` : "";
+    const tag = !c ? "" : c.status === "added" ? `  ${C.cyan(`✓ checked${often}`)}` : `  ${C.violet(`◌ check suggested${often}`)}`;
     if (n.kind === "action") {
       if (c?.status === "added") return `${C.cyan(ICON.action)} ${C.text(label)}${tag}`;
       const risky = n.risk === "high" || n.risk === "medium";
@@ -117,6 +119,8 @@ export function drawMap(m: StoredAgentMap, url: string) {
   const on = actions.filter((a) => cps.get(a.id)?.status === "added").length;
   const sugg = m.checkpoints.filter((c) => c.status === "suggested").length;
   out.write(`  ${LANES.map((c) => c("━")).join("")} ${C.bold(C.text(sugg ? `Plures found ${sugg} ${sugg === 1 ? "place" : "places"} a person should check.` : "Your map is ready."))}\n`);
+  const scored = (m as { engine?: { version?: string } }).engine?.version;
+  if (scored) out.write(`       ${C.dim(`Scored by the Plures oversight engine ${scored}: how risky each action is, and how often people check it.`)}\n`);
   out.write(`       ${C.mute(`${on} of ${actions.length} ${actions.length === 1 ? "action" : "actions"} with consequences ${on === 1 ? "has" : "have"} a human check.`)}\n\n`);
   out.write(`  ${C.text("See it build:")} ${C.cyan(url)}\n\n`);
 }
