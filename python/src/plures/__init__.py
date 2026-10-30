@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -150,6 +150,13 @@ class Plures:
 
     def revoke_map_key(self, app, key_id):
         return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_keys/" + urllib.parse.quote(str(key_id)))
+
+    def start_map_run(self, app):
+        """Starts a map run where Plures runs Claude, for CI with no Anthropic key. npx plures map does this."""
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_runs", {})
+
+    def list_map_runs(self, app):
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_runs")
 
     def map_workflow(self, app, branch="main"):
         """The GitHub Actions workflow that maps a repo on every push to its main branch."""

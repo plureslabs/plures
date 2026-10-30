@@ -122,7 +122,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.8.0";
+export const VERSION = "1.9.0";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
@@ -227,6 +227,9 @@ export class Plures {
     createKey: (app: string, opts: { label?: string } = {}) => this.req<MapKey & { key: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`, opts),
     keys: (app: string) => this.req<{ object: "list"; data: MapKey[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`),
     revokeKey: (app: string, id: string) => this.req<{ object: "map_key"; id: string; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(app)}/map_keys/${encodeURIComponent(id)}`),
+    /** Starts a map run where Plures runs Claude (CI with no Anthropic key). npx plures map does this. */
+    startRun: (app: string) => this.req<{ object: "map_run"; id: string; app: string; free: boolean; max_cents: number; token: string; base_url: string; model: string; expires_in: number }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`, {}),
+    runs: (app: string) => this.req<{ object: "list"; data: { object: "map_run"; id: string; status: string; free: boolean; charged_cents: number | null; created_at: string }[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`),
     /** The GitHub Actions workflow that maps a repo on every push to its main branch. */
     workflow: async (app: string, branch = "main") => { const r = await fetch(`${this.base}/api/v1/map_workflow?app=${encodeURIComponent(app)}&branch=${encodeURIComponent(branch)}`); return r.text(); },
   };
