@@ -5,6 +5,7 @@
 //   npx plures map guide                         print the steps for any coding agent
 //   npx plures map workflow [--branch main]      add a GitHub Action that maps on every push
 //   npx plures map github [connect [owner/repo] | on | run | off]   let Plures set up and run that Action
+//   npx plures check add <id> [--app x]         put plures.check("<id>") before its action, on a new branch
 import { spawnSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { relative, isAbsolute } from "node:path";
@@ -37,8 +38,18 @@ async function upload(file: string) {
   try { map = JSON.parse(readFileSync(file, "utf8")); } catch { die(`${file} isn't valid JSON.`); }
   if (!fancy) console.log(dim(`Sending the map to Plures. No source code is sent.`));
   let m: StoredAgentMap;
-  try { m = await client().maps.upload(app, map as never); }
+  // Which branch this is: on GitHub from the run, else from git. Branches other than main are
+  // compared with main instead of replacing it.
+  const gitBranch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).stdout?.trim();
+  const branchName = process.env.PLURES_BRANCH || process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || (gitBranch && gitBranch !== "HEAD" ? gitBranch : "");
+  try { m = await client().maps.upload(app, map as never, branchName ? { branch: branchName } : {}); }
   catch (e) { die(e instanceof PluresError ? `Plures said: ${e.message}` : String(e)); }
+  if (m.branch) console.log(`${bold(`Branch ${m.branch}`)}: compared with the main map${m.main_version ? ` (version ${m.main_version})` : ""}, not replacing it.${m.pull_request ? ` Noted on ${m.pull_request}` : ""}`);
+  if (m.changes && (m.changes.added.length || m.changes.removed.length || m.changes.renamed.length || m.changes.risky.length)) {
+    const c = m.changes;
+    console.log(`${dim("Changes:")} ${[c.added.length ? `${c.added.length} new` : "", c.renamed.length ? `${c.renamed.length} renamed, checks kept` : "", c.removed.length ? `${c.removed.length} removed` : ""].filter(Boolean).join(", ") || "no new actions"}`);
+    for (const r of c.risky) console.log(`  ${coral("no check")}  ${r.label} ${dim(`score ${r.score}: ${r.why.join("; ")}`)}`);
+  }
   if (fancy) drawMap(m, m.url ?? `${base}/dashboard/apps/${m.app}/map`);
   else report(m);
 }
@@ -233,10 +244,75 @@ async function github(action: string | undefined, arg: string | undefined) {
   } catch (e) { if (e instanceof PluresError) die(e.message); throw e; }
 }
 
+// Puts one check into the code: your coding agent adds the plures.check line before the action
+// the map names, plus the client and the dependency if they're missing, on a new branch. In
+// GitHub Actions it pushes the branch and Plures opens the pull request; locally it leaves the
+// branch for you to review.
+async function checkAdd(id: string | undefined) {
+  if (!id) die("npx plures check add <check id> [--app <app>]");
+  const cl = client();
+  const report = async (p: { branch: string } | { error: string }) => { if (process.env.GITHUB_ACTIONS) await cl.maps.checkPr(app, id, p).catch(() => {}); };
+  const fail = async (msg: string): Promise<never> => { await report({ error: msg }); die(msg); };
+  let m: StoredAgentMap;
+  try { m = await cl.maps.retrieve(app); } catch (e) { return fail(e instanceof PluresError ? e.message : String(e)); }
+  const cp0 = m.checkpoints.find((x) => x.id === id || x.category === id) as (StoredAgentMap["checkpoints"][number] & { code?: string | null }) | undefined;
+  const cp = cp0!;
+  if (!cp0) return fail(`No check called ${id} on ${app}'s map.`);
+  const action = m.nodes.find((n) => n.id === cp.at) as (StoredAgentMap["nodes"][number] & { via?: string }) | undefined;
+  const cid = cp.id ?? id;
+  if (!cp.code) return fail(`The check ${cid} has no drafted question yet. Edit it on Plures first.`);
+  if (!hasClaude()) return fail("Claude Code isn't installed here, so nothing could add the line. Copy it from the check's page instead.");
+  const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
+  if (git("status", "--porcelain").stdout.trim()) return fail("This repo has changes that aren't committed. Commit or stash them first.");
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+  const ownClaude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN);
+  if (!ownClaude && process.env.CI) {
+    try { const run = await cl.maps.startRun(app); childEnv.ANTHROPIC_BASE_URL = run.base_url; childEnv.ANTHROPIC_API_KEY = run.token; }
+    catch (e) { return fail(e instanceof PluresError ? e.message : String(e)); }
+  }
+  const where = action?.file ? `${action.file}${action.line ? ` near line ${action.line}` : ""}` : "the code";
+  console.log(`Adding the check ${bold(cid)} before ${bold(action?.label ?? cp.at)}, in ${where}.`);
+  const prompt = `Add one Plures human check to this codebase. Change as little as possible.
+
+Where: just before the step "${action?.label ?? cp.at}"${action?.via ? ` (it goes through ${action.via})` : ""}, in ${where}. Find the exact place; the line may have moved.
+
+What to add, adapted to the file's language and style (for Python: \`check = plures.check("${cid}", fields)\` and \`check.answer\`):
+
+${cp.code}
+
+- fields: an object with the values a person needs to decide, taken from variables already in scope at that point${(cp.draft as { show?: string[] } | null)?.show?.length ? `. Use these field names: ${(cp.draft as { show: string[] }).show.join(", ")}` : ""}. Never pass secrets, card numbers or passwords.
+- If the answer isn't the first option, the agent must not do the step: return, skip, or raise, whichever fits the code around it.
+- If the file has no Plures client yet, add one: JavaScript or TypeScript \`import { Plures } from "plures"\` and \`const plures = new Plures(process.env.PLURES_API_KEY${app !== "default" ? `, { app: "${app}" }` : ""})\`; Python \`from plures import Plures\` and \`plures = Plures(os.environ["PLURES_API_KEY"]${app !== "default" ? `, app="${app}"` : ""})\`. Keep to how the project sets up other clients.
+- If the package isn't a dependency yet, add "plures" to package.json dependencies, or plures to requirements.txt or pyproject.toml, whichever the project uses. Don't run installers.
+- Don't change anything else, don't reformat, don't add tests, and don't run commands.`;
+  const code = await new Promise<number>((resolve) => {
+    const p = spawn("claude", ["-p", prompt, "--allowedTools", "Read,Grep,Glob,Edit,Write"], { stdio: ["ignore", "inherit", "inherit"], env: childEnv });
+    p.on("close", (n) => resolve(n ?? 1)); p.on("error", () => resolve(1));
+  });
+  const changed = git("status", "--porcelain").stdout.trim();
+  if (code !== 0 || !changed) return fail("Claude Code didn't change any files, so there's nothing to review. Copy the line from the check's page instead.");
+  const br = `plures/check-${cid.replace(/[^a-z0-9_-]+/gi, "-")}-${Date.now().toString(36)}`;
+  for (const a of [["checkout", "-b", br], ["add", "-A"], ["commit", "-m", `Add the Plures check ${cid} before ${(action?.label ?? cp.at).toLowerCase()}`]]) {
+    const r = git(...a);
+    if (r.status !== 0) return fail(`git ${a[0]} failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
+  }
+  if (!process.env.GITHUB_ACTIONS) {
+    console.log(`\n${cyan("✓")} The check is on the branch ${bold(br)}. Review it with ${cyan("git show")}, then push it and open a pull request.`);
+    return;
+  }
+  const push = git("push", "-u", "origin", br);
+  if (push.status !== 0) return fail(`Pushing the branch failed: ${(push.stderr || push.stdout).trim().slice(0, 200)}`);
+  try {
+    const r = await cl.maps.checkPr(app, cid, { branch: br });
+    console.log(`${cyan("✓")} Pull request: ${r.pull_request ?? "opened"}`);
+  } catch (e) { die(e instanceof PluresError ? e.message : String(e)); }
+}
+
 async function main() {
   const [cmd, sub, arg] = argv;
+  if (cmd === "check" && sub === "add") return checkAdd(arg);
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);

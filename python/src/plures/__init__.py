@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.15.0"
+__version__ = "1.16.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -137,9 +137,10 @@ class Plures:
         """An app's latest agent map, with live numbers for each checkpoint."""
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map")
 
-    def upload_map(self, app, agent_map):
-        """Uploads a new version of an app's agent map: {"nodes": [...], "edges": [...], "checkpoints": [...]}."""
-        return self._req("PUT", "/api/v1/apps/" + urllib.parse.quote(app) + "/map", agent_map)
+    def upload_map(self, app, agent_map, branch=None):
+        """Uploads a new version of an app's agent map: {"nodes": [...], "edges": [...], "checkpoints": [...]}.
+        A branch other than the main one gets its own map, compared with main, and noted on its pull request."""
+        return self._req("PUT", "/api/v1/apps/" + urllib.parse.quote(app) + "/map", agent_map, {"plures-branch": branch} if branch else None)
 
     def create_map_key(self, app, label=None):
         """A key that can only read and upload this app's map, for CI. The key is in the response once."""
@@ -161,6 +162,11 @@ class Plures:
     def map_progress(self, app, session, phase="reading", events=None, source="cli"):
         """While mapping, the files being read ([{"path": ...}]), shown live on the map page. File names only."""
         return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/map/progress", {"session": session, "phase": phase, "source": source, "events": events or []})
+
+    def check_pr(self, app, check_id, branch=None, error=None):
+        """After a branch with the check in it is pushed, Plures opens the pull request. Pass error if adding it failed."""
+        body = {"error": error} if error else {"branch": branch}
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/checks/" + urllib.parse.quote(check_id) + "/pr", body)
 
     def map_workflow(self, app, branch="main"):
         """The GitHub Actions workflow that maps a repo on every push to its main branch."""
@@ -267,6 +273,28 @@ class Plures:
             if t["status"] != "pending" or time.time() > end:
                 return t
             time.sleep(interval)
+
+    def check(self, check_id, data=None, timeout=600, idempotency_key=None, **overrides):
+        """Runs a check from your app's map and waits for the decision. Send the data by name; the
+        check saved on Plures supplies the question, options, which fields people see, who decides,
+        how often and the timeout. Keyword arguments override them for this call (question, options,
+        verifiers, team, route, always, sample, timeout). result["answer"] is the option to act on:
+        what people chose, the first option when no check was needed or it timed out set to go
+        ahead, and None when it timed out set to hold."""
+        headers = {"idempotency-key": idempotency_key} if idempotency_key else None
+        t = self._req("POST", "/api/v1/checks/" + urllib.parse.quote(check_id), {"data": data or {}, **overrides}, headers)
+        final = t if t["status"] != "pending" else self.wait_for(t["id"], timeout=timeout)
+        labels = {o["id"]: o["label"] for o in final["options"]}
+        first = final["options"][0]["label"] if final["options"] else None
+        timed_out = final["status"] in ("expired", "pending")
+        if final["status"] == "completed":
+            answer = labels.get((final.get("result") or {}).get("answer"), (final.get("result") or {}).get("answer"))
+        elif final["status"] == "skipped" or (timed_out and t.get("on_timeout") == "proceed"):
+            answer = first
+        else:
+            answer = None
+        return {**final, "check": t.get("check"), "on_timeout": t.get("on_timeout"), "kept_private": t.get("kept_private", []),
+                "skipped_because": t.get("skipped_because"), "answer": answer, "checked": final["status"] != "skipped", "timed_out": timed_out}
 
     def verify(self, question, options, timeout=600, idempotency_key=None, **fields):
         """Creates a task and waits for people to answer it."""

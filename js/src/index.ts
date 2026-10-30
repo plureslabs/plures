@@ -5,6 +5,20 @@ export type Option = { id: string; label: string };
 /** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per internal vote live). */
 export type Route = "verifiers" | "team";
 // skipped: a sampled check that wasn't picked this time; result.answer is the first option, go ahead.
+export type CheckOverrides = {
+  question?: string; options?: string[]; instructions?: string; verifiers?: number; team?: string; route?: "verifiers" | "team";
+  /** Check this one even if the sample or a condition would skip it. */ always?: boolean;
+  /** Share of calls people check, 0 to 1, for this call. */ sample?: number;
+  /** Seconds people have to answer. */ timeout?: number;
+  metadata?: Record<string, unknown>; webhook_url?: string;
+};
+type CheckExtra = { check: string; on_timeout: "proceed" | "hold"; kept_private?: string[]; skipped_because?: string };
+export type CheckResult = Task & Omit<CheckExtra, "kept_private" | "skipped_because"> & {
+  /** The option to act on, by label. */ answer: string | null;
+  /** false when the check wasn't needed this time (a sample or a condition). */ checked: boolean;
+  timed_out: boolean; kept_private: string[]; skipped_because: string | null;
+};
+
 export type TaskStatus = "pending" | "completed" | "expired" | "canceled" | "skipped";
 export type Result = {
   answer: string | null; label: string | null; agreement: number; answers: number; votes: Record<string, number>; tie?: boolean;
@@ -107,7 +121,11 @@ export type MapCheckpoint = { id?: string; at: string; why: string; category?: s
 /** An agent map: the steps of one app's agent and where people check. Written by your coding agent; no source code. */
 export type AgentMap = { name?: string | null; summary?: string | null; source?: { repo?: string | null; commit?: string | null; tool?: string | null }; nodes: MapNode[]; edges: { from: string; to: string; label?: string | null }[]; checkpoints: MapCheckpoint[] };
 export type MapKey = { object: "map_key"; id: string; app: string; prefix: string; label: string | null; created_at: string; last_used_at: string | null };
-export type StoredAgentMap = AgentMap & { object: "agent_map"; app: string; version: number; created_at?: string; via?: string; url?: string };
+export type MapChanges = { since: number | null; added: { id: string; label: string; score: number | null; checked: boolean }[]; removed: { id: string; label: string }[]; renamed: { from: string; to: string; label: string }[]; risky: { id: string; label: string; score: number; why: string[] }[] };
+export type StoredAgentMap = AgentMap & { object: "agent_map"; app: string; version: number; created_at?: string; via?: string; url?: string;
+  /** Set for a branch map: the branch, the main map version it's compared with, and its pull request. */
+  branch?: string; main_version?: number | null; pull_request?: string | null;
+  changes?: MapChanges; engine?: { version: string; actions: Record<string, { score: number; factors: string[]; oversight: { mode: string; rate: number | null; verifiers: number } }> } };
 
 export type Rubric = { object: "rubric"; name: string; app: string; question: string; options: string[]; instructions: string | null; sample_rate: number; verifiers: number; drift_points: number; webhook_url: string | null; seen: number; sampled: number; created_at: string;
   quality?: { score: number | null; this_week: number | null; baseline: number | null; drift: boolean; graded_this_week: number; grades_this_week: Record<string, number>; days: { day: string; score: number | null; n: number }[] } };
@@ -125,7 +143,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.15.0";
+export const VERSION = "1.16.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -231,7 +249,8 @@ export class Plures {
     guide: async () => { const r = await fetch(`${this.base}/api/v1/map_guide`); return r.text(); },
     retrieve: (app: string) => this.req<StoredAgentMap>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map`),
     /** Uploads a new version. Checks you already added or dismissed keep that. */
-    upload: (app: string, map: AgentMap) => this.req<StoredAgentMap>("PUT", `/api/v1/apps/${encodeURIComponent(app)}/map`, map),
+    /** A branch other than the main one gets its own map, compared with main, and noted on its pull request. */
+    upload: (app: string, map: AgentMap, opts: { branch?: string } = {}) => this.req<StoredAgentMap>("PUT", `/api/v1/apps/${encodeURIComponent(app)}/map`, map, opts.branch ? { "plures-branch": opts.branch } : {}),
     setCheckpoint: (app: string, id: string, status: "added" | "dismissed" | "suggested") =>
       this.req<StoredAgentMap>("PATCH", `/api/v1/apps/${encodeURIComponent(app)}/map/checkpoints/${encodeURIComponent(id)}`, { status }),
     /** A key that can only read and upload this app's map, for CI. The key is in the response once. */
@@ -244,6 +263,9 @@ export class Plures {
     /** While mapping, which files the coding agent is reading, shown live on the map page. File names only. npx plures map does this. */
     progress: (app: string, p: { session: string; phase?: "reading" | "drawing" | "done" | "failed"; source?: "cli" | "github"; events?: { path: string; tool?: string }[] }) =>
       this.req<{ object: "map_progress"; app: string; session: string; phase: string; received: number }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map/progress`, p),
+    /** After npx plures check add pushed a branch with the check in it: Plures opens the pull request. Pass error instead if adding it failed. */
+    checkPr: (app: string, id: string, p: { branch: string } | { error: string }) =>
+      this.req<{ object: "check_pr"; check: string; opened: boolean; pull_request?: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/checks/${encodeURIComponent(id)}/pr`, p),
     /** The GitHub Actions workflow that maps a repo on every push to its main branch. */
     workflow: async (app: string, branch = "main") => { const r = await fetch(`${this.base}/api/v1/map_workflow?app=${encodeURIComponent(app)}&branch=${encodeURIComponent(branch)}`); return r.text(); },
   };
@@ -299,6 +321,25 @@ export class Plures {
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */
   balance = () => this.req<Balance>("GET", "/api/v1/balance");
+
+  /**
+   * Runs a check from your app's map and waits for the decision. Send the data by name; the check
+   * saved on Plures supplies the question, options, guidance, which fields people see (the rest
+   * never leave Plures), who decides, how often and what happens on a timeout. Any of those can be
+   * overridden for this call. `answer` is the option to act on: what people chose, the first option
+   * when the check wasn't needed (a sample or a condition) or timed out set to go ahead, and null
+   * when it timed out set to hold.
+   */
+  async check(id: string, data: Record<string, unknown> = {}, overrides: CheckOverrides = {}, opts: { timeoutMs?: number; idempotencyKey?: string } = {}): Promise<CheckResult> {
+    const t = await this.req<Task & CheckExtra>("POST", `/api/v1/checks/${encodeURIComponent(id)}`, { data, ...overrides }, opts.idempotencyKey ? { "idempotency-key": opts.idempotencyKey } : {});
+    const final = t.status === "pending" ? await this.tasks.waitFor(t.id, { timeoutMs: opts.timeoutMs }) : t;
+    const opt = (k: string | null | undefined) => final.options.find((o) => o.id === k)?.label ?? k ?? null;
+    const first = final.options[0]?.label ?? null;
+    const timedOut = final.status === "expired" || final.status === "pending";
+    const answer = final.status === "completed" ? opt(final.result?.answer) : final.status === "skipped" ? first : timedOut && t.on_timeout === "proceed" ? first : null;
+    return { ...final, check: t.check, on_timeout: t.on_timeout, kept_private: t.kept_private ?? [], skipped_because: t.skipped_because ?? null,
+      answer, checked: final.status !== "skipped", timed_out: timedOut };
+  }
 
   /** Creates a task and waits for people to answer it. */
   async verify(params: CreateTask, opts: { timeoutMs?: number; idempotencyKey?: string } = {}) {
