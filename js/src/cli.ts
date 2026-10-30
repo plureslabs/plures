@@ -91,7 +91,9 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     banner(app, "Reading this repo on your machine with Claude Code. Only file names and the map go to Plures.");
     if (key && !noOpen && await openBrowser(pageUrl)) console.log(`  ${dim("Watch it live in your browser:")} ${cyan(pageUrl)}\n`);
   } else console.log(`Reading this repo ${process.env.CI ? "on this runner" : "on your machine"} with Claude Code. ${dim("Only the map is sent to Plures.")}\n`);
-  const prompt = `${guide}\n\nWrite the map to ${FILE} in the current directory now. Read the code; don't run it or change anything else.`;
+  const prompt = `${guide}\n\nWrite the map to ${FILE} in the current directory now, as JSON, with the Write tool. Read the code; don't run it or change anything else. Don't write a script to generate the map: you can't run scripts or other commands here, so write the JSON itself.`;
+  // If it stops without the file, it gets one more turn, told exactly that.
+  const nudge = `${FILE} doesn't exist yet. Write it now with the Write tool: the complete map as JSON, directly. You can't run scripts or commands here, so don't write one. Use what you've already read.`;
 
   // Live: the file names Claude opens go to the map page as it reads, so you can watch it work.
   // Only the names; nothing from inside a file is sent.
@@ -116,8 +118,8 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
   let result = "";
   const ticker = fancy ? liveLine() : null;
   ticker?.start();
-  const code = await new Promise<number>((resolve) => {
-    const p = spawn("claude", ["-p", prompt, "--output-format", "stream-json", "--verbose", "--allowedTools", "Read,Grep,Glob,Write,Bash(git rev-parse:*),Bash(git remote:*)"], { stdio: ["ignore", "pipe", "inherit"], env: childEnv });
+  const runClaude = (args: string[]) => new Promise<number>((resolve) => {
+    const p = spawn("claude", [...args, "--output-format", "stream-json", "--verbose", "--allowedTools", "Read,Grep,Glob,Write,Bash(git rev-parse:*),Bash(git remote:*)"], { stdio: ["ignore", "pipe", "inherit"], env: childEnv });
     let buf = "";
     p.stdout.on("data", (chunk: Buffer) => {
       buf += chunk.toString();
@@ -145,14 +147,17 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     p.on("close", (n) => resolve(n ?? 1));
     p.on("error", () => resolve(1));
   });
+  const wrote = () => existsSync(FILE) && statSync(FILE).mtimeMs !== before;
+  let code = await runClaude(["-p", prompt]);
+  if (!wrote()) code = await runClaude(["-p", nudge, "--continue"]);
   clearInterval(tick);
   ticker?.stop();
   if (result && !fancy) console.log(`\n${result.trim()}\n`);
   if (fancy) console.log(`  ${cyan("✓")} ${reads} ${reads === 1 ? "file" : "files"} read. ${dim("Sending the map to Plures. No source code is sent.")}`);
-  const ok = code === 0 && existsSync(FILE) && statSync(FILE).mtimeMs !== before;
+  const ok = code === 0 && wrote();
   if (!ok) { phase = "failed"; await flush(); }
   else await flush();
-  if (code !== 0 || !existsSync(FILE) || statSync(FILE).mtimeMs === before) die(`Claude Code didn't write ${FILE}. Ask it directly, then run npx plures map upload.`);
+  if (!ok) die(`Claude Code didn't write ${FILE}${process.env.CI ? ". This run costs nothing." : `. Ask it directly, then run npx plures map upload.`}`);
   await upload(FILE);
 }
 
