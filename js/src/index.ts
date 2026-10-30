@@ -5,6 +5,22 @@ export type Option = { id: string; label: string };
 /** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per internal vote live). */
 export type Route = "verifiers" | "team";
 // skipped: a sampled check that wasn't picked this time; result.answer is the first option, go ahead.
+export type TurnParams = {
+  /** What the user said or typed. */ question: string;
+  /** What the assistant replied ("" if it said nothing). */ answer: string;
+  /** Where your router sent it. */ intent?: string;
+  /** If the model corrected the router. */ rerouted_to?: string | null;
+  /** How it retrieved, like "full", "rerank" or "agentic". */ retrieval?: string;
+  /** What it used. [] means it answered with none. */ sources?: { id?: string; title?: string; snippet?: string; score?: number }[];
+  /** It said it didn't know. Plures guesses from the answer if you leave it out. */ refused?: boolean;
+  /** A conversation or call id, so Plures can tell when the user asks again. */ session?: string;
+  channel?: "voice" | "text";
+  /** A recording people can play, for voice. */ audio_url?: string;
+  /** Every intent your router can pick, so graders can choose the right one. */ intents?: string[];
+  /** Send this one for review whatever the sample says. */ review?: boolean;
+  app?: string; metadata?: Record<string, unknown>;
+};
+
 export type CheckOverrides = {
   question?: string; options?: string[]; instructions?: string; verifiers?: number; team?: string; route?: "verifiers" | "team";
   /** Check this one even if the sample or a condition would skip it. */ always?: boolean;
@@ -143,7 +159,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.16.0";
+export const VERSION = "1.17.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -316,6 +332,28 @@ export class Plures {
       const r = await fetch(`${this.base}/api/v1/rubrics/${encodeURIComponent(rubric)}/export${q.size ? `?${q}` : ""}`, { headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": this.ua } });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new PluresError(d?.error?.message ?? `HTTP ${r.status}`, r.status, d?.error?.type ?? "api_error"); }
       return (await r.text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as { task_id: string; rubric: string; input: string | null; output: string; grade: string | null; score: number | null; agreement: number | null; graders: number; graded_at: string; metadata: Record<string, unknown> });
+    },
+  };
+
+  /**
+   * Answer reviews: send each turn your assistant answers, with where it routed and what it
+   * retrieved. Plures picks the ones worth a look (rerouted, refused, empty, no sources, asked
+   * again, plus a few at random) and your team grades them. Free, and nothing waits on it: call
+   * it after the reply and don't await it in the user's path.
+   */
+  turns = {
+    log: (t: TurnParams) => this.req<{ object: "turn"; id: string; app: string; picked: boolean; reason: string | null; signals: string[]; asked_again_of?: string }>("POST", "/api/v1/turns", t),
+    /** Grade a turn from your own tools. */
+    grade: (id: string, g: { intent_ok?: boolean; right_intent?: string; grounded?: "yes" | "partly" | "no" | "should_refuse" | "should_answer"; complete?: boolean; missed?: string; fact?: string; doc?: string; note?: string; email?: string }) =>
+      this.req<{ object: "turn_grade"; turn: string }>("POST", `/api/v1/turns/${encodeURIComponent(id)}/grade`, g),
+    /** What the grades say: per intent, misroutes, retrieval misses and missed asks. */
+    insights: (app: string, opts: { days?: number } = {}) => this.req<Record<string, unknown>>("GET", `/api/v1/apps/${encodeURIComponent(app)}/turns/insights${opts.days ? `?days=${opts.days}` : ""}`),
+    /** Graded turns as eval data: routes (routing examples), retrieval ({ query, doc, must_contain }), qa ({ question, fact } or { question, unanswerable }), missed. */
+    export: async (app: string, kind: "routes" | "retrieval" | "qa" | "missed", opts: { since?: string } = {}) => {
+      const q = new URLSearchParams({ kind, ...(opts.since ? { since: opts.since } : {}) });
+      const r = await fetch(`${this.base}/api/v1/apps/${encodeURIComponent(app)}/turns/export?${q}`, { headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": this.ua } });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new PluresError(d?.error?.message ?? `HTTP ${r.status}`, r.status, d?.error?.type ?? "api_error"); }
+      return (await r.text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
     },
   };
 

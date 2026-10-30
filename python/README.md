@@ -46,6 +46,7 @@ event = verify_webhook(request.get_data(), request.headers.get("Plures-Signature
 
 ## API
 
+- `log_turn(question, answer, intent=None, rerouted_to=None, retrieval=None, sources=None, session=None, channel=None)`: answer reviews for assistants. Plures picks the turns that went wrong plus a few at random for your team to grade. `turn_insights(app)` and `export_turns(app, kind)` (routes, retrieval, qa, missed) turn the grades into routing examples and eval sets.
 - `check(check_id, data=None, **overrides)`: run a check from your app's map, one line before the action it guards: `check = plures.check("refunds", {"order_total": total})`, then act only if `check["answer"] == "Approve"`. The check saved on Plures supplies the question, options, which fields people see (the rest come back in `kept_private`), who decides, how often, its conditions and what happens on a timeout. `checked` says whether a person looked; `skipped_because` says why not.
 - `create_task(question, options, idempotency_key=None, **fields)`: fields are `context`, `image_url`, `audio_url` or `video_url` with `media_seconds` (a clip up to 180 seconds that people play through before answering), `sensitive`, `instructions`, `verifiers` (1, 3, 5, 7 or 9), `max_verifiers`, `presence_check` (default True), `webhook_url`, `metadata`, `expires_in`
 - `get_task(id)`, `list_tasks(status=None, limit=None, starting_after=None, app=None)`, `cancel_task(id)`

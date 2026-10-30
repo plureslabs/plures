@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.16.0"
+__version__ = "1.17.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -241,6 +241,38 @@ class Plures:
 
     def delete_rubric(self, name, app=None):
         return self._req("DELETE", "/api/v1/rubrics/" + urllib.parse.quote(name) + ("?app=" + urllib.parse.quote(app) if app else ""))
+
+    # Answer reviews: send each turn your assistant answers, with where it routed and what it
+    # retrieved. Plures picks the ones worth a look and your team grades them. Free; don't let the
+    # user wait on it.
+    def log_turn(self, question, answer, intent=None, rerouted_to=None, retrieval=None, sources=None, refused=None,
+                 session=None, channel=None, audio_url=None, intents=None, review=False, app=None, metadata=None):
+        body = {"question": question, "answer": answer, "intent": intent, "rerouted_to": rerouted_to, "retrieval": retrieval,
+                "sources": sources, "refused": refused, "session": session, "channel": channel, "audio_url": audio_url,
+                "intents": intents, "review": review or None, "app": app, "metadata": metadata}
+        return self._req("POST", "/api/v1/turns", {k: v for k, v in body.items() if v is not None})
+
+    def grade_turn(self, turn_id, **grade):
+        """intent_ok, right_intent, grounded (yes, partly, no, should_refuse, should_answer), complete, missed, fact, doc, note."""
+        return self._req("POST", "/api/v1/turns/" + urllib.parse.quote(turn_id) + "/grade", grade)
+
+    def turn_insights(self, app, days=None):
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/turns/insights" + ("?days=" + str(days) if days else ""))
+
+    def export_turns(self, app, kind="qa", since=None):
+        """Graded turns as eval data. kind: routes, retrieval, qa or missed."""
+        q = {k: v for k, v in {"kind": kind, "since": since}.items() if v}
+        h = {"authorization": "Bearer " + self.api_key, "user-agent": "plures-python/" + __version__}
+        req = urllib.request.Request(self.base + "/api/v1/apps/" + urllib.parse.quote(app) + "/turns/export?" + urllib.parse.urlencode(q), headers=h)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                return [json.loads(line) for line in r.read().decode().splitlines() if line.strip()]
+        except urllib.error.HTTPError as e:
+            try:
+                err = json.loads(e.read()).get("error", {})
+            except Exception:
+                err = {}
+            raise PluresError(err.get("message") or "HTTP %d" % e.code, e.code, err.get("type") or "api_error")
 
     def export_graded(self, rubric, app=None, since=None):
         """Graded samples as a list of dicts (input, output, grade, score, agreement), for fine tuning or evals."""
