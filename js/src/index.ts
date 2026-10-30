@@ -122,7 +122,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.9.0";
+export const VERSION = "1.9.1";
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }

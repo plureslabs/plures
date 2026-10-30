@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.9.0"
+__version__ = "1.9.1"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 

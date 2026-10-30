@@ -69,7 +69,7 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     return;
   }
   const before = existsSync(FILE) ? statSync(FILE).mtimeMs : 0;
-  // In CI with no Claude key of its own, Plures runs Claude: a metered run through Plures.
+  // In CI with no Anthropic key of its own, Plures maps it: a metered run through Plures.
   const childEnv: NodeJS.ProcessEnv = { ...process.env };
   const ownClaude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN);
   if (!ownClaude && (process.env.CI || argv.includes("--plures-claude"))) {
@@ -78,7 +78,7 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     catch (e) { die(e instanceof PluresError ? e.message : String(e)); }
     childEnv.ANTHROPIC_BASE_URL = run.base_url;
     childEnv.ANTHROPIC_API_KEY = run.token;
-    console.log(dim(run.free ? "Plures is running Claude for this map. Your first map is free." : `Plures is running Claude for this map, at most $${(run.max_cents / 100).toFixed(2)} from your credit.`));
+    console.log(dim(run.free ? "Plures is mapping this repo. Your first map is free." : `Plures is mapping this repo, at most $${(run.max_cents / 100).toFixed(2)} from your credit.`));
   }
   console.log(`Reading this repo ${process.env.CI ? "on this runner" : "on your machine"} with Claude Code. ${dim("Only the map is sent to Plures.")}\n`);
   const prompt = `${guide}\n\nWrite the map to ${FILE} in the current directory now. Read the code; don't run it or change anything else.`;
