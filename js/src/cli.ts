@@ -6,6 +6,8 @@
 //   npx plures map workflow [--branch main]      add a GitHub Action that maps on every push
 //   npx plures map github [connect [owner/repo] | on | off]   let Plures set up and run that Action
 import { spawnSync, spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { relative, isAbsolute } from "node:path";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { Plures, PluresError, VERSION, type StoredAgentMap } from "./index.js";
 
@@ -83,11 +85,62 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
   }
   console.log(`Reading this repo ${process.env.CI ? "on this runner" : "on your machine"} with Claude Code. ${dim("Only the map is sent to Plures.")}\n`);
   const prompt = `${guide}\n\nWrite the map to ${FILE} in the current directory now. Read the code; don't run it or change anything else.`;
+
+  // Live: the file names Claude opens go to the map page as it reads, so you can watch it work.
+  // Only the names; nothing from inside a file is sent.
+  const live = key ? client() : null;
+  const session = randomBytes(12).toString("base64url");
+  const source = process.env.GITHUB_ACTIONS ? "github" : "cli";
+  let queue: { path: string; tool: string }[] = [], phase: "reading" | "drawing" | "done" | "failed" = "reading", sent = "", reads = 0;
+  const flush = async () => {
+    if (!live) return;
+    const events = queue; queue = [];
+    if (!events.length && sent === phase) return;
+    sent = phase;
+    await live.maps.progress(app, { session, phase, source, events }).catch(() => {});
+  };
+  const tick = setInterval(() => { void flush(); }, 900);
+  void flush();
+  const rel = (p: unknown) => {
+    if (typeof p !== "string" || !p) return null;
+    const r = isAbsolute(p) ? relative(process.cwd(), p) : p;
+    return r.startsWith("..") ? null : r.replace(/\\/g, "/");
+  };
+  let result = "";
   const code = await new Promise<number>((resolve) => {
-    const p = spawn("claude", ["-p", prompt, "--allowedTools", "Read,Grep,Glob,Write,Bash(git rev-parse:*),Bash(git remote:*)"], { stdio: ["ignore", "inherit", "inherit"], env: childEnv });
+    const p = spawn("claude", ["-p", prompt, "--output-format", "stream-json", "--verbose", "--allowedTools", "Read,Grep,Glob,Write,Bash(git rev-parse:*),Bash(git remote:*)"], { stdio: ["ignore", "pipe", "inherit"], env: childEnv });
+    let buf = "";
+    p.stdout.on("data", (chunk: Buffer) => {
+      buf += chunk.toString();
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        let ev: { type?: string; result?: string; message?: { content?: { type: string; name?: string; input?: Record<string, unknown> }[] } };
+        try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.type === "result" && typeof ev.result === "string") result = ev.result;
+        for (const b of ev.type === "assistant" ? ev.message?.content ?? [] : []) {
+          if (b.type !== "tool_use") continue;
+          if (b.name === "Read") {
+            const f = rel(b.input?.file_path);
+            if (!f) continue;
+            reads++;
+            queue.push({ path: f, tool: "Read" });
+            console.log(`  ${dim(String(reads).padStart(3))}  ${dim("reading")} ${f}`);
+          } else if (b.name === "Write" && String(b.input?.file_path ?? "").endsWith(FILE)) {
+            phase = "drawing";
+            console.log(`\n  ${violet("drawing")}  the map`);
+          }
+        }
+      }
+    });
     p.on("close", (n) => resolve(n ?? 1));
     p.on("error", () => resolve(1));
   });
+  clearInterval(tick);
+  if (result) console.log(`\n${result.trim()}\n`);
+  const ok = code === 0 && existsSync(FILE) && statSync(FILE).mtimeMs !== before;
+  if (!ok) { phase = "failed"; await flush(); }
+  else await flush();
   if (code !== 0 || !existsSync(FILE) || statSync(FILE).mtimeMs === before) die(`Claude Code didn't write ${FILE}. Ask it directly, then run npx plures map upload.`);
   await upload(FILE);
 }

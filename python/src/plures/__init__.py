@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.10.0"
+__version__ = "1.11.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -157,6 +157,10 @@ class Plures:
 
     def list_map_runs(self, app):
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_runs")
+
+    def map_progress(self, app, session, phase="reading", events=None, source="cli"):
+        """While mapping, the files being read ([{"path": ...}]), shown live on the map page. File names only."""
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/map/progress", {"session": session, "phase": phase, "source": source, "events": events or []})
 
     def map_workflow(self, app, branch="main"):
         """The GitHub Actions workflow that maps a repo on every push to its main branch."""

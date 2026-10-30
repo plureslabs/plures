@@ -4,3 +4,4 @@ __pycache__/
 *.egg-info/
 .venv/
 mcp/package-lock.json
+js/src/*.js

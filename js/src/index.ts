@@ -122,7 +122,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.10.0";
+export const VERSION = "1.11.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -238,6 +238,9 @@ export class Plures {
     /** Starts a map run where Plures runs Claude (CI with no Anthropic key). npx plures map does this. */
     startRun: (app: string) => this.req<{ object: "map_run"; id: string; app: string; free: boolean; max_cents: number; token: string; base_url: string; model: string; expires_in: number }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`, {}),
     runs: (app: string) => this.req<{ object: "list"; data: { object: "map_run"; id: string; status: string; free: boolean; charged_cents: number | null; created_at: string }[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`),
+    /** While mapping, which files the coding agent is reading, shown live on the map page. File names only. npx plures map does this. */
+    progress: (app: string, p: { session: string; phase?: "reading" | "drawing" | "done" | "failed"; source?: "cli" | "github"; events?: { path: string; tool?: string }[] }) =>
+      this.req<{ object: "map_progress"; app: string; session: string; phase: string; received: number }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map/progress`, p),
     /** The GitHub Actions workflow that maps a repo on every push to its main branch. */
     workflow: async (app: string, branch = "main") => { const r = await fetch(`${this.base}/api/v1/map_workflow?app=${encodeURIComponent(app)}&branch=${encodeURIComponent(branch)}`); return r.text(); },
   };
