@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -182,6 +182,10 @@ class Plures:
     def connect_github(self, app, repo):
         """Connects a repo ("owner/name"): sets its map key secret and opens the pull request."""
         return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/github", {"repo": repo})
+
+    def run_github(self, app, update=False):
+        """Map now: runs the app's map workflow on GitHub. update=True first updates an older workflow."""
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/github/run", {"update": True} if update else {})
 
     def turn_on_github(self, app):
         """Turns mapping on by merging the pull request. The repo's own rules (reviews, checks) still apply."""

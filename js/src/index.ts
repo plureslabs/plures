@@ -122,7 +122,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.12.0";
+export const VERSION = "1.13.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -258,6 +258,8 @@ export class Plures {
     /** Connects a repo ("owner/name"): sets its map key secret and opens the pull request. */
     connect: (app: string, repo: string) => this.req<GitHubLink>("POST", `/api/v1/apps/${encodeURIComponent(app)}/github`, { repo }),
     /** Turns mapping on by merging the pull request. The repo's own rules (reviews, checks) still apply. */
+    /** Map now: runs the app's map workflow on GitHub. { update: true } first updates an older workflow. Watch it on the map page. */
+    run: (app: string, opts: { update?: boolean } = {}) => this.req<{ object: "map_run_request"; app: string; started: true; updated_workflow: boolean }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/github/run`, opts),
     turnOn: (app: string) => this.req<{ object: "github_merge"; app: string; merged: true; already_merged: boolean; sha: string | null }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/github/merge`, {}),
     /** Revokes the repo's map key. Delete the workflow file in the repo to stop runs. */
     disconnect: (app: string) => this.req<{ object: "github_link"; app: string; connected: false; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(app)}/github`),

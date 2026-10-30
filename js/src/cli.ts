@@ -4,7 +4,7 @@
 //   npx plures map upload [plures.map.json]     upload a map file your coding agent wrote
 //   npx plures map guide                         print the steps for any coding agent
 //   npx plures map workflow [--branch main]      add a GitHub Action that maps on every push
-//   npx plures map github [connect [owner/repo] | on | off]   let Plures set up and run that Action
+//   npx plures map github [connect [owner/repo] | on | run | off]   let Plures set up and run that Action
 import { spawnSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { relative, isAbsolute } from "node:path";
@@ -195,6 +195,19 @@ async function github(action: string | undefined, arg: string | undefined) {
   };
   try {
     if (!action || action === "status") return show(await p.github.status(app));
+    if (action === "run") {
+      let r;
+      try { r = await p.github.run(app); }
+      catch (e) {
+        if (!(e instanceof PluresError && e.type === "workflow_outdated")) throw e;
+        console.log(dim("This repo's map workflow is from before Map now. Updating it, which merges a small change to the workflow file."));
+        r = await p.github.run(app, { update: true });
+      }
+      const url = `${base}/dashboard/apps/${encodeURIComponent(app)}/map`;
+      console.log(`${bold("Mapping now on GitHub.")} Watch it build: ${cyan(url)}`);
+      if (fancy && !noOpen) await openBrowser(url);
+      return void r;
+    }
     if (action === "on") {
       const r = await p.github.turnOn(app);
       console.log(r.already_merged ? "Mapping was already on." : `${bold("Mapping is on.")} The first run is starting on GitHub.`);
@@ -211,14 +224,14 @@ async function github(action: string | undefined, arg: string | undefined) {
       console.log(`${bold("Pull request opened")} in ${repo}: ${g.pull_request?.url}\nIt adds one workflow file. Review it, then turn mapping on with ${cyan("npx plures map github on")}${app !== "default" ? ` --app ${app}` : ""}, or merge it on GitHub.`);
       return;
     }
-    die("npx plures map github [connect [owner/repo] | on | off]");
+    die("npx plures map github [connect [owner/repo] | on | run | off]");
   } catch (e) { if (e instanceof PluresError) die(e.message); throw e; }
 }
 
 async function main() {
   const [cmd, sub, arg] = argv;
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);
