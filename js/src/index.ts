@@ -122,7 +122,15 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.9.1";
+export const VERSION = "1.10.0";
+
+export type GitHubLink = {
+  object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
+  repo?: string; pull_request?: { url: string | null; state: "open" | "merged" | "closed" | "unknown" };
+  mapping_on?: boolean; mapped_by?: "plures" | "your_anthropic_key" | "needs_key"; first_map_free?: boolean;
+  latest_run?: { status: string; conclusion: string | null; url: string; created_at: string } | null;
+  mapped_at?: string | null; connected_at?: string;
+};
 
 export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
@@ -232,6 +240,24 @@ export class Plures {
     runs: (app: string) => this.req<{ object: "list"; data: { object: "map_run"; id: string; status: string; free: boolean; charged_cents: number | null; created_at: string }[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`),
     /** The GitHub Actions workflow that maps a repo on every push to its main branch. */
     workflow: async (app: string, branch = "main") => { const r = await fetch(`${this.base}/api/v1/map_workflow?app=${encodeURIComponent(app)}&branch=${encodeURIComponent(branch)}`); return r.text(); },
+  };
+
+  /**
+   * Map with GitHub: Plures adds a workflow to your repo by pull request and keeps the app's map
+   * current on every push. Installing the Plures GitHub App needs a browser once (installUrl);
+   * everything after that works here.
+   */
+  github = {
+    /** Repos the Plures GitHub App can reach. installed is false until you install it at install_url. */
+    repos: () => this.req<{ object: "list"; installed: boolean; install_url: string; data: { object: "github_repo"; repo: string; private: boolean; account: string; default_branch: string }[] }>("GET", "/api/v1/github/repos"),
+    /** Where an app's GitHub link stands: repo, pull request, mapping on, latest run, last map. */
+    status: (app: string) => this.req<GitHubLink>("GET", `/api/v1/apps/${encodeURIComponent(app)}/github`),
+    /** Connects a repo ("owner/name"): sets its map key secret and opens the pull request. */
+    connect: (app: string, repo: string) => this.req<GitHubLink>("POST", `/api/v1/apps/${encodeURIComponent(app)}/github`, { repo }),
+    /** Turns mapping on by merging the pull request. The repo's own rules (reviews, checks) still apply. */
+    turnOn: (app: string) => this.req<{ object: "github_merge"; app: string; merged: true; already_merged: boolean; sha: string | null }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/github/merge`, {}),
+    /** Revokes the repo's map key. Delete the workflow file in the repo to stop runs. */
+    disconnect: (app: string) => this.req<{ object: "github_link"; app: string; connected: false; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(app)}/github`),
   };
 
   /**

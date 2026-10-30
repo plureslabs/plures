@@ -4,6 +4,7 @@
 //   npx plures map upload [plures.map.json]     upload a map file your coding agent wrote
 //   npx plures map guide                         print the steps for any coding agent
 //   npx plures map workflow [--branch main]      add a GitHub Action that maps on every push
+//   npx plures map github [connect [owner/repo] | on | off]   let Plures set up and run that Action
 import { spawnSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { Plures, PluresError, VERSION, type StoredAgentMap } from "./index.js";
@@ -102,21 +103,64 @@ async function workflow() {
   mkdirSync(".github/workflows", { recursive: true });
   writeFileSync(path, await r.text());
   console.log(`${bold("Wrote " + path)}: maps this repo on every push to ${b}.\n
-Then add two repository secrets (Settings, Secrets and variables, Actions):
+Then add a repository secret (Settings, Secrets and variables, Actions):
   ${cyan("PLURES_MAP_KEY")}      a map key: ${dim(`${base}/dashboard/apps/${app}/map`)} or ${dim("POST /api/v1/apps/" + app + "/map_keys")}
-  ${cyan("ANTHROPIC_API_KEY")}   or ${cyan("CLAUDE_CODE_OAUTH_TOKEN")} from ${dim("claude setup-token")}
-\nOr let Plures do all of this: ${bold("Map with GitHub")} on the app's map page.`);
+Optional: ${cyan("ANTHROPIC_API_KEY")}, or ${cyan("CLAUDE_CODE_OAUTH_TOKEN")} from ${dim("claude setup-token")}, to map on your own key for free.
+Without it Plures maps it: the first map is free.
+\nOr let Plures do all of this: ${bold("npx plures map github connect")}.`);
+}
+
+// The repo this folder is a clone of, from its origin remote, as owner/name.
+function originRepo() {
+  const u = spawnSync("git", ["remote", "get-url", "origin"], { encoding: "utf8" }).stdout?.trim() ?? "";
+  return /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(u)?.[1];
+}
+
+// Map with GitHub from the terminal: the same steps as the map page.
+async function github(action: string | undefined, arg: string | undefined) {
+  const p = client();
+  const show = (g: Awaited<ReturnType<typeof p.github.status>>) => {
+    if (!g.connected) return console.log(`${bold(app)} has no repo connected. Run ${cyan("npx plures map github connect")} in the repo, or pass ${cyan("owner/repo")}.`);
+    const on = g.mapping_on ? cyan("on") : coral("off until the pull request is merged");
+    console.log(`${bold(app)} maps from ${bold(g.repo!)}: mapping ${on}.
+  Pull request  ${g.pull_request?.state} ${dim(g.pull_request?.url ?? "")}
+  Mapped by     ${g.mapped_by === "your_anthropic_key" ? "your Anthropic key, free" : g.mapped_by === "plures" ? `Plures${g.first_map_free ? ", first map free" : ""}` : coral("needs ANTHROPIC_API_KEY in the repo's secrets")}
+  Latest run    ${g.latest_run ? `${g.latest_run.conclusion ?? g.latest_run.status} ${dim(g.latest_run.url)}` : dim("none yet")}
+  Map           ${g.mapped_at ? `uploaded ${g.mapped_at}` : dim("arrives a few minutes after the first run")}`);
+    if (g.pull_request?.state === "open") console.log(`\nTurn it on: ${cyan("npx plures map github on")}${app !== "default" ? ` --app ${app}` : ""}`);
+  };
+  try {
+    if (!action || action === "status") return show(await p.github.status(app));
+    if (action === "on") {
+      const r = await p.github.turnOn(app);
+      console.log(r.already_merged ? "Mapping was already on." : `${bold("Mapping is on.")} The first run is starting on GitHub.`);
+      return show(await p.github.status(app));
+    }
+    if (action === "off") { await p.github.disconnect(app); return console.log(`Disconnected. The repo's map key is revoked. Delete ${cyan(".github/workflows/plures-map.yml")} in the repo to stop runs.`); }
+    if (action === "connect") {
+      const repo = arg ?? originRepo();
+      if (!repo) die("Pass the repo as owner/name, or run this inside a clone of it.");
+      const list = await p.github.repos();
+      if (!list.installed || !list.data.some((r) => r.repo.toLowerCase() === repo.toLowerCase()))
+        die(`The Plures GitHub App can't reach ${repo} yet. Open this once, pick the repo, then run this again:\n  ${list.install_url}?app=${app}`);
+      const g = await p.github.connect(app, repo);
+      console.log(`${bold("Pull request opened")} in ${repo}: ${g.pull_request?.url}\nIt adds one workflow file. Review it, then turn mapping on with ${cyan("npx plures map github on")}${app !== "default" ? ` --app ${app}` : ""}, or merge it on GitHub.`);
+      return;
+    }
+    die("npx plures map github [connect [owner/repo] | on | off]");
+  } catch (e) { if (e instanceof PluresError) die(e.message); throw e; }
 }
 
 async function main() {
   const [cmd, sub, arg] = argv;
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);
   if (sub === "guide") return void console.log(await (await fetch(`${base}/api/v1/map_guide`)).text());
   if (sub === "workflow") return workflow();
+  if (sub === "github") return github(arg, argv[3]);
   return map();
 }
 

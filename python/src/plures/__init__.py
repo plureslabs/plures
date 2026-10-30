@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.9.1"
+__version__ = "1.10.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -163,6 +163,29 @@ class Plures:
         url = self.base + "/api/v1/map_workflow?" + urllib.parse.urlencode({"app": app, "branch": branch})
         with urllib.request.urlopen(url, timeout=self.timeout) as r:
             return r.read().decode()
+
+    # Map with GitHub: Plures adds a workflow to your repo by pull request and keeps the app's map
+    # current on every push. Installing the Plures GitHub App needs a browser once (install_url).
+
+    def github_repos(self):
+        """Repos the Plures GitHub App can reach. installed is False until you install it at install_url."""
+        return self._req("GET", "/api/v1/github/repos")
+
+    def github_status(self, app):
+        """Where an app's GitHub link stands: repo, pull request, mapping on, latest run, last map."""
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/github")
+
+    def connect_github(self, app, repo):
+        """Connects a repo ("owner/name"): sets its map key secret and opens the pull request."""
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/github", {"repo": repo})
+
+    def turn_on_github(self, app):
+        """Turns mapping on by merging the pull request. The repo's own rules (reviews, checks) still apply."""
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/github/merge", {})
+
+    def disconnect_github(self, app):
+        """Revokes the repo's map key. Delete the workflow file in the repo to stop runs."""
+        return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app) + "/github")
 
     def set_checkpoint(self, app, checkpoint_id, status):
         """Marks a suggested check "added", "dismissed" or "suggested"."""
