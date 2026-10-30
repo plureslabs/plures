@@ -10,10 +10,12 @@ import { randomBytes } from "node:crypto";
 import { relative, isAbsolute } from "node:path";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { Plures, PluresError, VERSION, type StoredAgentMap } from "./index.js";
+import { banner, drawMap, fancy, liveLine, openBrowser } from "./term.js";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => { const i = argv.indexOf(`--${name}`); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
 const branch = flag("branch");
+const noOpen = argv.includes("--no-open") ? (argv.splice(argv.indexOf("--no-open"), 1), true) : false;
 const app = flag("app") ?? process.env.PLURES_APP ?? "default";
 const key = flag("key") ?? process.env.PLURES_API_KEY;
 const base = flag("base-url") ?? process.env.PLURES_BASE_URL ?? "https://plures.si";
@@ -33,11 +35,12 @@ async function upload(file: string) {
   if (!existsSync(file)) die(`No ${file} here. Run npx plures map to make one, or pass the file's path.`);
   let map: unknown;
   try { map = JSON.parse(readFileSync(file, "utf8")); } catch { die(`${file} isn't valid JSON.`); }
-  console.log(dim(`Sending the map to Plures. No source code is sent.`));
+  if (!fancy) console.log(dim(`Sending the map to Plures. No source code is sent.`));
   let m: StoredAgentMap;
   try { m = await client().maps.upload(app, map as never); }
   catch (e) { die(e instanceof PluresError ? `Plures said: ${e.message}` : String(e)); }
-  report(m);
+  if (fancy) drawMap(m, m.url ?? `${base}/dashboard/apps/${m.app}/map`);
+  else report(m);
 }
 
 function report(m: StoredAgentMap) {
@@ -83,7 +86,11 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     childEnv.ANTHROPIC_API_KEY = run.token;
     console.log(dim(run.free ? "Plures is mapping this repo. Your first map is free." : `Plures is mapping this repo, at most $${(run.max_cents / 100).toFixed(2)} from your credit.`));
   }
-  console.log(`Reading this repo ${process.env.CI ? "on this runner" : "on your machine"} with Claude Code. ${dim("Only the map is sent to Plures.")}\n`);
+  const pageUrl = `${base}/dashboard/apps/${encodeURIComponent(app)}/map`;
+  if (fancy) {
+    banner(app, "Reading this repo on your machine with Claude Code. Only file names and the map go to Plures.");
+    if (key && !noOpen && await openBrowser(pageUrl)) console.log(`  ${dim("Watch it live in your browser:")} ${cyan(pageUrl)}\n`);
+  } else console.log(`Reading this repo ${process.env.CI ? "on this runner" : "on your machine"} with Claude Code. ${dim("Only the map is sent to Plures.")}\n`);
   const prompt = `${guide}\n\nWrite the map to ${FILE} in the current directory now. Read the code; don't run it or change anything else.`;
 
   // Live: the file names Claude opens go to the map page as it reads, so you can watch it work.
@@ -107,6 +114,8 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     return r.startsWith("..") ? null : r.replace(/\\/g, "/");
   };
   let result = "";
+  const ticker = fancy ? liveLine() : null;
+  ticker?.start();
   const code = await new Promise<number>((resolve) => {
     const p = spawn("claude", ["-p", prompt, "--output-format", "stream-json", "--verbose", "--allowedTools", "Read,Grep,Glob,Write,Bash(git rev-parse:*),Bash(git remote:*)"], { stdio: ["ignore", "pipe", "inherit"], env: childEnv });
     let buf = "";
@@ -125,10 +134,10 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
             if (!f) continue;
             reads++;
             queue.push({ path: f, tool: "Read" });
-            console.log(`  ${dim(String(reads).padStart(3))}  ${dim("reading")} ${f}`);
+            if (ticker) ticker.read(f); else console.log(`  ${dim(String(reads).padStart(3))}  ${dim("reading")} ${f}`);
           } else if (b.name === "Write" && String(b.input?.file_path ?? "").endsWith(FILE)) {
             phase = "drawing";
-            console.log(`\n  ${violet("drawing")}  the map`);
+            if (ticker) ticker.drawing(); else console.log(`\n  ${violet("drawing")}  the map`);
           }
         }
       }
@@ -137,7 +146,9 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     p.on("error", () => resolve(1));
   });
   clearInterval(tick);
-  if (result) console.log(`\n${result.trim()}\n`);
+  ticker?.stop();
+  if (result && !fancy) console.log(`\n${result.trim()}\n`);
+  if (fancy) console.log(`  ${cyan("✓")} ${reads} ${reads === 1 ? "file" : "files"} read. ${dim("Sending the map to Plures. No source code is sent.")}`);
   const ok = code === 0 && existsSync(FILE) && statSync(FILE).mtimeMs !== before;
   if (!ok) { phase = "failed"; await flush(); }
   else await flush();
