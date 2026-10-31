@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.20.0"
+__version__ = "1.21.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -155,7 +155,7 @@ class Plures:
     def map_estimate(self, app, kind="map", case=None):
         """What the next map or drift fix will cost before it starts. A map: the Plures engine fee (per step of the
         app's map; the first map of each app is free) and Claude at cost if Plures runs it. A drift fix: paid by outcome,
-        up to drift_fix.max_cents, in proportion to the quality points it wins back, Claude included. blocked says why it can't start."""
+        drift_fix.per_point_cents for each quality point it wins back, at most drift_fix.max_cents, Claude included. blocked says why it can't start."""
         q = "?for=" + urllib.parse.quote(kind) + ("&case=" + urllib.parse.quote(case) if case else "")
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_estimate" + q)
 

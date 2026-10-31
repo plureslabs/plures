@@ -5,8 +5,8 @@ export type MapEstimate = {
   object: "map_estimate"; app: string; for: "map" | "drift";
   engine_fee: { steps: number | null; cents: number | null; free: boolean; per_step_cents: number; basis: string };
   claude_cents_if_plures_runs: number | null;
-  /** For a drift fix: paid by outcome, up to max_cents, in proportion to the quality points won back. Claude included. */
-  drift_fix?: { steps: number | null; max_cents: number; per_step_cents: number; min_cents: number; cap_cents: number; outcome: true };
+  /** For a drift fix: paid by outcome, per_point_cents for each quality point won back, at most max_cents. Claude included. */
+  drift_fix?: { steps: number | null; per_point_cents: number; lost_points: number | null; max_cents: number; min_point_cents: number; max_point_cents: number; cap_cents: number; outcome: true; free_under_guarantee: boolean };
   blocked: string | null;
 };
 export type Option = { id: string; label: string };
@@ -180,7 +180,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.20.0";
+export const VERSION = "1.21.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -295,8 +295,8 @@ export class Plures {
     keys: (app: string) => this.req<{ object: "list"; data: MapKey[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`),
     revokeKey: (app: string, id: string) => this.req<{ object: "map_key"; id: string; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(app)}/map_keys/${encodeURIComponent(id)}`),
     /** What the next map or drift fix will cost before it starts. A map: the Plures engine fee, per step of the app's map
-     * (the first map of each app is free), and Claude at cost if Plures runs it. A drift fix: paid by outcome, up to
-     * drift_fix.max_cents, in proportion to the quality points it wins back, Claude included. blocked says why it can't start. */
+     * (the first map of each app is free), and Claude at cost if Plures runs it. A drift fix: paid by outcome,
+     * drift_fix.per_point_cents for each quality point it wins back, at most drift_fix.max_cents, Claude included. blocked says why it can't start. */
     estimate: (app: string, kind: "map" | "drift" = "map", opts: { case?: string } = {}) => this.req<MapEstimate>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_estimate?for=${kind}${opts.case ? `&case=${encodeURIComponent(opts.case)}` : ""}`),
     /** Starts a map run where Plures runs Claude (CI with no Anthropic key). npx plures map does this. */
     startRun: (app: string, opts: { purpose?: "map" | "drift"; case?: string } = {}) => this.req<{ object: "map_run"; id: string; app: string; free: boolean; purpose: "map" | "drift"; max_cents: number; token: string; base_url: string; model: string; expires_in: number }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`, opts),
