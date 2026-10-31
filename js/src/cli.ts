@@ -335,7 +335,7 @@ async function driftFix(id: string | undefined) {
   const fail = async (msg: string): Promise<never> => { await report({ error: msg }).catch(() => {}); die(msg); };
   let packet: Awaited<ReturnType<typeof cl.drift.packet>>;
   try { packet = await cl.drift.packet(app, id); } catch (e) { return fail(e instanceof PluresError ? e.message : String(e)); }
-  const est = await cl.maps.estimate(app, "drift").catch(() => null);
+  const est = await cl.maps.estimate(app, "drift", { case: id }).catch(() => null);
   if (est?.blocked) return fail(est.blocked);
   if (!hasClaude()) return fail("Claude Code isn't installed here, so nothing could read the code.");
   const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
@@ -343,7 +343,8 @@ async function driftFix(id: string | undefined) {
   const childEnv: NodeJS.ProcessEnv = { ...process.env };
   const ownClaude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN);
   if (!ownClaude && process.env.CI) {
-    try { const run = await cl.maps.startRun(app); childEnv.ANTHROPIC_BASE_URL = run.base_url; childEnv.ANTHROPIC_API_KEY = run.token; }
+    // Claude is included in a drift fix's price, so this run is never charged on its own.
+    try { const run = await cl.maps.startRun(app, { purpose: "drift", case: id }); childEnv.ANTHROPIC_BASE_URL = run.base_url; childEnv.ANTHROPIC_API_KEY = run.token; }
     catch (e) { return fail(e instanceof PluresError ? e.message : String(e)); }
   }
   const session = packet.session || `drift_${randomBytes(9).toString("base64url").replace(/[-_]/g, "")}`;

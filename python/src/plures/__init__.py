@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.19.0"
+__version__ = "1.20.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -152,10 +152,12 @@ class Plures:
     def revoke_map_key(self, app, key_id):
         return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_keys/" + urllib.parse.quote(str(key_id)))
 
-    def map_estimate(self, app, kind="map"):
-        """What the next map or drift fix will cost before it starts: the Plures engine fee (per step of the
-        app's map; the first map of each app is free) and Claude at cost if Plures runs it. blocked says why it can't start."""
-        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_estimate?for=" + urllib.parse.quote(kind))
+    def map_estimate(self, app, kind="map", case=None):
+        """What the next map or drift fix will cost before it starts. A map: the Plures engine fee (per step of the
+        app's map; the first map of each app is free) and Claude at cost if Plures runs it. A drift fix: paid by outcome,
+        up to drift_fix.max_cents, in proportion to the quality points it wins back, Claude included. blocked says why it can't start."""
+        q = "?for=" + urllib.parse.quote(kind) + ("&case=" + urllib.parse.quote(case) if case else "")
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map_estimate" + q)
 
     def start_map_run(self, app):
         """Starts a map run where Plures runs Claude, for CI with no Anthropic key. npx plures map does this."""
