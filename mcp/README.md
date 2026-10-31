@@ -2,6 +2,8 @@
 
 An MCP server that gives any AI agent a human in the loop: an `ask_humans` tool that sends a decision to ID verified people and returns their consensus before the agent acts. Built on [Plures](https://plures.si).
 
+[![Plures MCP server](https://mcprush.com/badge/plures-mcp/card.svg)](https://mcprush.com/to/plures-mcp?ref=badge)
+
 Works with Claude Desktop, Claude Code, Cursor, VS Code, and agent frameworks that support MCP (OpenAI Agents SDK, LangChain, Vercel AI SDK and more).
 
 ## Set up

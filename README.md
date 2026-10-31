@@ -10,6 +10,8 @@ Use it as the human in the loop (HITL) step for the calls where a wrong answer c
 | [`plures`](python) (PyPI) | `pip install plures` | Python 3.8+, no dependencies |
 | [`plures-mcp`](mcp) (npm) | `npx -y plures-mcp` | Claude, Cursor, VS Code and any MCP client or agent |
 
+[![Plures MCP server](https://mcprush.com/badge/plures-mcp/card.svg)](https://mcprush.com/to/plures-mcp?ref=badge)
+
 Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys answer instantly without reaching real people, so you can build the whole flow first.
 
 ## Quickstart
