@@ -6,6 +6,7 @@
 //   npx plures map workflow [--branch main]      add a GitHub Action that maps on every push
 //   npx plures map github [connect [owner/repo] | on | run | off]   let Plures set up and run that Action
 //   npx plures check add <id> [--app x]         put plures.check("<id>") before its action, on a new branch
+//   npx plures drift fix <case> [--app x]       find why quality fell and fix it, on a new branch
 import { spawnSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { relative, isAbsolute } from "node:path";
@@ -308,11 +309,100 @@ ${cp.code}
   } catch (e) { die(e instanceof PluresError ? e.message : String(e)); }
 }
 
+// Fixes drift: Claude Code reads this repo with the graded examples that got worse (from Plures),
+// finds the cause, changes the code, adds eval cases, and writes a diagnosis. The files it reads go
+// to the drift panel live, names only. In GitHub Actions the branch is pushed and Plures opens the
+// pull request; locally the branch stays here for you to review.
+async function driftFix(id: string | undefined) {
+  if (!id) die("npx plures drift fix <case id> [--app <app>]");
+  const cl = client();
+  const report = async (p: Parameters<typeof cl.drift.report>[2]) => cl.drift.report(app, id, p);
+  const fail = async (msg: string): Promise<never> => { await report({ error: msg }).catch(() => {}); die(msg); };
+  let packet: Awaited<ReturnType<typeof cl.drift.packet>>;
+  try { packet = await cl.drift.packet(app, id); } catch (e) { return fail(e instanceof PluresError ? e.message : String(e)); }
+  if (!hasClaude()) return fail("Claude Code isn't installed here, so nothing could read the code.");
+  const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
+  if (git("status", "--porcelain").stdout.trim()) return fail("This repo has changes that aren't committed. Commit or stash them first.");
+  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+  const ownClaude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN);
+  if (!ownClaude && process.env.CI) {
+    try { const run = await cl.maps.startRun(app); childEnv.ANTHROPIC_BASE_URL = run.base_url; childEnv.ANTHROPIC_API_KEY = run.token; }
+    catch (e) { return fail(e instanceof PluresError ? e.message : String(e)); }
+  }
+  const session = packet.session || `drift_${randomBytes(9).toString("base64url").replace(/[-_]/g, "")}`;
+  const source = process.env.GITHUB_ACTIONS ? "github" : "cli";
+  let queue: { path: string; tool: string }[] = [], phase: "reading" | "drawing" | "done" | "failed" = "reading", sent = "";
+  const flush = async () => { const events = queue; queue = []; if (!events.length && sent === phase) return; sent = phase; await cl.maps.progress(app, { session, phase, source, events }).catch(() => {}); };
+  const tick = setInterval(() => { void flush(); }, 900);
+  void flush();
+  const DIAG = ".plures-drift.json";
+  console.log(`${bold("Plures drift")}  ${packet.label}\n${dim("Claude Code reads this repo with the graded examples that got worse. Only file names and the diagnosis go to Plures.")}\n`);
+  const prompt = `Quality fell in this codebase's AI assistant, and people graded the examples. Find out why in the code and fix it.
+
+What Plures measured (JSON):
+${JSON.stringify({ ...packet, session: undefined }, null, 2).slice(0, 60000)}
+
+Do this:
+1. Read the code behind the steps listed (prompts, the intent router, retrieval, the answer step). Compare the examples that got worse with the ones that were fine before${packet.version_after ? `, and look for what changed in ${packet.version_after}` : ""}. Use git log or the prompt files if that helps.
+2. Fix the cause in the code with the smallest change that would make the worse examples come out right without breaking the good ones. Prefer prompt, routing and retrieval fixes over rewrites. Don't change unrelated code or formatting.
+3. If the repo has eval files (like evals/*.jsonl), add cases from the worse examples in the same format, so this can't come back unnoticed.
+4. Write ${DIAG} in the repo root, as JSON: { "summary": "the cause in one or two sentences", "confidence": "high" | "medium" | "low", "causes": [{ "title": "...", "detail": "...", "files": [{ "file": "src/...", "line": 12 }] }], "changes": [{ "file": "src/...", "why": "..." }], "evals_added": 0 }. If you change nothing, say why in summary and leave changes empty.
+Don't run the app or tests, and never include secrets or customer data in ${DIAG}.`;
+  const rel = (p: unknown) => (typeof p === "string" && p ? (isAbsolute(p) ? relative(process.cwd(), p) : p) : null);
+  const code = await new Promise<number>((resolve) => {
+    const p = spawn("claude", ["-p", prompt, "--output-format", "stream-json", "--verbose", "--allowedTools", "Read,Grep,Glob,Edit,Write,Bash(git log:*),Bash(git show:*),Bash(git diff:*)"], { stdio: ["ignore", "pipe", "inherit"], env: childEnv });
+    let buf = "";
+    p.stdout.on("data", (chunk: Buffer) => {
+      buf += chunk.toString(); let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        let ev: { type?: string; message?: { content?: { type: string; name?: string; input?: Record<string, unknown> }[] } };
+        try { ev = JSON.parse(line); } catch { continue; }
+        for (const b of ev.type === "assistant" ? ev.message?.content ?? [] : []) {
+          if (b.type !== "tool_use") continue;
+          const f = rel(b.input?.file_path ?? b.input?.path);
+          if (!f || f.startsWith("..") || f.endsWith(DIAG)) continue;
+          if (b.name === "Read") { queue.push({ path: f, tool: "Read" }); console.log(`  ${dim("reading")} ${f}`); }
+          else if (b.name === "Edit" || b.name === "Write") { phase = "drawing"; queue.push({ path: f, tool: "Edit" }); console.log(`  ${violet("fixing")}  ${f}`); }
+        }
+      }
+    });
+    p.on("close", (n) => resolve(n ?? 1)); p.on("error", () => resolve(1));
+  });
+  clearInterval(tick);
+  let diagnosis: unknown = null;
+  try { diagnosis = JSON.parse(readFileSync(DIAG, "utf8")); } catch { /* none */ }
+  try { spawnSync("rm", ["-f", DIAG]); } catch { /* fine */ }
+  if (code !== 0 || !diagnosis) { phase = "failed"; await flush(); return fail("Claude Code didn't write a diagnosis. Nothing was changed on Plures."); }
+  const changed = git("status", "--porcelain").stdout.trim();
+  let branch: string | null = null;
+  if (changed) {
+    branch = `plures/drift-${id.replace(/[^a-z0-9_-]+/gi, "-")}-${Date.now().toString(36)}`;
+    for (const a of [["checkout", "-b", branch], ["add", "-A"], ["commit", "-m", `Fix drift: ${String(packet.label).slice(0, 60)}`]]) {
+      const r = git(...a);
+      if (r.status !== 0) { phase = "failed"; await flush(); return fail(`git ${a[0]} failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`); }
+    }
+    if (process.env.GITHUB_ACTIONS) {
+      const push = git("push", "-u", "origin", branch);
+      if (push.status !== 0) { phase = "failed"; await flush(); return fail(`Pushing the branch failed: ${(push.stderr || push.stdout).trim().slice(0, 200)}`); }
+    }
+  }
+  phase = "done"; await flush();
+  try {
+    const r = await report({ diagnosis: diagnosis as never, branch: process.env.GITHUB_ACTIONS ? branch : null });
+    const d = diagnosis as { summary?: string };
+    console.log(`\n${cyan("✓")} ${d.summary ?? "Diagnosed."}`);
+    if (r.pull_request) console.log(`${cyan("✓")} Pull request: ${r.pull_request}`);
+    else if (branch) console.log(`${cyan("✓")} The fix is on the branch ${bold(branch)}. Review it with ${cyan("git show")}, then push it and open a pull request.`);
+  } catch (e) { die(e instanceof PluresError ? e.message : String(e)); }
+}
+
 async function main() {
   const [cmd, sub, arg] = argv;
   if (cmd === "check" && sub === "add") return checkAdd(arg);
+  if (cmd === "drift" && sub === "fix") return driftFix(arg);
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n  npx plures drift fix <case>          find why quality fell and fix it, on a new branch\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);

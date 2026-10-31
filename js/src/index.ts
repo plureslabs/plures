@@ -5,7 +5,20 @@ export type Option = { id: string; label: string };
 /** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per internal vote live). */
 export type Route = "verifiers" | "team";
 // skipped: a sampled check that wasn't picked this time; result.answer is the first option, go ahead.
+export type DriftDiagnosis = {
+  summary: string; confidence: "high" | "medium" | "low";
+  causes: { title: string; detail: string; files: { file: string; line?: number | null }[] }[];
+  changes: { file: string; why: string }[]; evals_added: number;
+};
+export type DriftCase = {
+  object: "drift_case"; id: string; app: string; mode: "live" | "test"; source: "rubric" | "answers"; key: string; label: string;
+  status: "open" | "diagnosing" | "diagnosed" | "fix_open" | "verifying" | "recovered" | "dismissed" | "failed";
+  baseline: number | null; at_open: number | null; current: number | null; points: number; version_before: string | null; version_after: string | null;
+  diagnosis: DriftDiagnosis | null; pr_url: string | null; merged_at: string | null; post_n: number; recovered_at: string | null; opened_at: string;
+};
+
 export type TurnParams = {
+  /** Which version of your assistant answered, like "prompt v15", so a drop can be traced to a change. */ version?: string;
   /** What the user said or typed. */ question: string;
   /** What the assistant replied ("" if it said nothing). */ answer: string;
   /** Where your router sent it. */ intent?: string;
@@ -159,7 +172,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.17.0";
+export const VERSION = "1.18.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -355,6 +368,22 @@ export class Plures {
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new PluresError(d?.error?.message ?? `HTTP ${r.status}`, r.status, d?.error?.type ?? "api_error"); }
       return (await r.text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
     },
+  };
+
+  /**
+   * Drift: when a rubric's grades or an answer intent's grades fall, Plures opens a case, the repo's
+   * runner reads the code with the examples that got worse and opens a fix, and Plures checks the
+   * fix brings quality back. npx plures drift fix does the reading in your repo.
+   */
+  drift = {
+    list: (app: string) => this.req<{ object: "list"; data: DriftCase[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/drift`),
+    /** Runs the fix on GitHub through the repo's Plures workflow. */
+    fix: (app: string, id: string) => this.req<{ object: "drift_fix"; case: string; status: string; session: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/drift/${encodeURIComponent(id)}/fix`, {}),
+    /** What got worse: graded examples, the change that started it, and the steps on the map. */
+    packet: (app: string, id: string) => this.req<Record<string, unknown> & { case: string; label: string; session: string | null; kind: "rubric" | "answers" }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/drift/${encodeURIComponent(id)}/packet`),
+    /** After reading the code: the diagnosis, and the branch with the fix if there is one. Plures opens the pull request. */
+    report: (app: string, id: string, p: { diagnosis: DriftDiagnosis; branch?: string | null } | { error: string }) =>
+      this.req<{ object: "drift_fix"; case: string; status: string; pull_request?: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/drift/${encodeURIComponent(id)}/report`, p),
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */
