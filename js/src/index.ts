@@ -1,6 +1,10 @@
 // Plures: human judgment as an API. Client for TypeScript and JavaScript
 // (Node 18+, Bun, Deno, edge runtimes). No dependencies. https://plures.si/docs
 
+export type RubricSuggestion = {
+  object: "rubric_suggestion"; name: string; question: string; options: string[]; sample_rate: number; why: string;
+  source: "map" | "grades"; evidence?: { n: number; examples: string[] }; node: { id: string; label: string; file: string | null; line: number | null } | null;
+};
 export type MapEstimate = {
   object: "map_estimate"; app: string; for: "map" | "drift";
   engine_fee: { steps: number | null; cents: number | null; free: boolean; per_step_cents: number; basis: string };
@@ -180,7 +184,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.21.0";
+export const VERSION = "1.22.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -336,6 +340,9 @@ export class Plures {
    * early, and compare two versions blind before you ship. Personal details are taken out first.
    */
   quality = {
+    /** Rubrics the Plures engine suggests for an app: from what graders found in its answers (source "grades", with
+     * evidence) and from its agent map (source "map", with the step and file). Add one with rubrics.create. */
+    suggestions: (app: string) => this.req<{ object: "list"; app: string; data: RubricSuggestion[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/rubric_suggestions`),
     /** Send every output; the rubric's sample rate decides which ones people grade. */
     sample: (p: { rubric: string; output: string; input?: string; /** What produced it, like "prompt v14". */ version?: string; app?: string; metadata?: Record<string, unknown>; force?: boolean }) => this.req<Sample>("POST", "/api/v1/samples", p),
     /** A blind release check: a is the current version's output, b the new one's, for the same input. */

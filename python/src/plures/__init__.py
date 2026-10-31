@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.21.0"
+__version__ = "1.22.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -229,6 +229,10 @@ class Plures:
     def get_release(self, release, app=None):
         """How often people preferred the new version, with a 95% range and a verdict."""
         return self._req("GET", "/api/v1/releases/" + urllib.parse.quote(release) + ("?app=" + urllib.parse.quote(app) if app else ""))
+
+    def rubric_suggestions(self, app):
+        """Rubrics the Plures engine suggests for an app, from what graders found in its answers and from its agent map."""
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/rubric_suggestions")
 
     def list_rubrics(self, app=None):
         return self._req("GET", "/api/v1/rubrics" + ("?app=" + urllib.parse.quote(app) if app else ""))
