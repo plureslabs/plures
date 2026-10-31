@@ -1,6 +1,12 @@
 // Plures: human judgment as an API. Client for TypeScript and JavaScript
 // (Node 18+, Bun, Deno, edge runtimes). No dependencies. https://plures.si/docs
 
+export type MapEstimate = {
+  object: "map_estimate"; app: string; for: "map" | "drift";
+  engine_fee: { steps: number | null; cents: number | null; free: boolean; per_step_cents: number; basis: string };
+  claude_cents_if_plures_runs: number | null;
+  blocked: string | null;
+};
 export type Option = { id: string; label: string };
 /** "verifiers" asks ID verified people first; "team" goes straight to your own people ($0.05 per internal vote live). */
 export type Route = "verifiers" | "team";
@@ -172,7 +178,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.18.0";
+export const VERSION = "1.19.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -286,6 +292,9 @@ export class Plures {
     createKey: (app: string, opts: { label?: string } = {}) => this.req<MapKey & { key: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`, opts),
     keys: (app: string) => this.req<{ object: "list"; data: MapKey[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`),
     revokeKey: (app: string, id: string) => this.req<{ object: "map_key"; id: string; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(app)}/map_keys/${encodeURIComponent(id)}`),
+    /** What the next map (or drift fix) will cost before it starts: the Plures engine fee, per step of the app's map
+     * (the first map of each app is free), and Claude at cost if Plures runs it. blocked says why it can't start. */
+    estimate: (app: string, kind: "map" | "drift" = "map") => this.req<MapEstimate>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_estimate?for=${kind}`),
     /** Starts a map run where Plures runs Claude (CI with no Anthropic key). npx plures map does this. */
     startRun: (app: string) => this.req<{ object: "map_run"; id: string; app: string; free: boolean; max_cents: number; token: string; base_url: string; model: string; expires_in: number }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`, {}),
     runs: (app: string) => this.req<{ object: "list"; data: { object: "map_run"; id: string; status: string; free: boolean; charged_cents: number | null; created_at: string }[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_runs`),

@@ -41,8 +41,7 @@ async function upload(file: string) {
   let m: StoredAgentMap;
   // Which branch this is: on GitHub from the run, else from git. Branches other than main are
   // compared with main instead of replacing it.
-  const gitBranch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).stdout?.trim();
-  const branchName = process.env.PLURES_BRANCH || process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || (gitBranch && gitBranch !== "HEAD" ? gitBranch : "");
+  const branchName = currentBranch();
   try { m = await client().maps.upload(app, map as never, branchName ? { branch: branchName } : {}); }
   catch (e) { die(e instanceof PluresError ? `Plures said: ${e.message}` : String(e)); }
   if (m.branch) console.log(`${bold(`Branch ${m.branch}`)}: compared with the main map${m.main_version ? ` (version ${m.main_version})` : ""}, not replacing it.${m.pull_request ? ` Noted on ${m.pull_request}` : ""}`);
@@ -87,6 +86,16 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     return;
   }
   const before = existsSync(FILE) ? statSync(FILE).mtimeMs : 0;
+  // What it will cost, before Claude spends anything. Branch maps are free; the main map pays the
+  // Plures engine fee per step (the app's first map is free).
+  const est = await client().maps.estimate(app).catch(() => null);
+  if (est) {
+    const br = currentBranch();
+    const main = !br || br === "main" || br === "master";
+    if (est.blocked && main) die(est.blocked);
+    if (main && est.engine_fee.free) console.log(dim("Plures engine: this app's first map is free."));
+    else if (main && est.engine_fee.cents) console.log(dim(`Plures engine: about $${(est.engine_fee.cents / 100).toFixed(2)} (${est.engine_fee.steps} steps at ${est.engine_fee.per_step_cents}¢), from your credit when the map uploads.`));
+  }
   // In CI with no Anthropic key of its own, Plures maps it: a metered run through Plures.
   const childEnv: NodeJS.ProcessEnv = { ...process.env };
   const ownClaude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN);
@@ -313,6 +322,12 @@ ${cp.code}
 // finds the cause, changes the code, adds eval cases, and writes a diagnosis. The files it reads go
 // to the drift panel live, names only. In GitHub Actions the branch is pushed and Plures opens the
 // pull request; locally the branch stays here for you to review.
+// Which branch this is: on GitHub from the run, else from git.
+function currentBranch() {
+  const gitBranch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).stdout?.trim();
+  return process.env.PLURES_BRANCH || process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME || (gitBranch && gitBranch !== "HEAD" ? gitBranch : "");
+}
+
 async function driftFix(id: string | undefined) {
   if (!id) die("npx plures drift fix <case id> [--app <app>]");
   const cl = client();
@@ -320,6 +335,8 @@ async function driftFix(id: string | undefined) {
   const fail = async (msg: string): Promise<never> => { await report({ error: msg }).catch(() => {}); die(msg); };
   let packet: Awaited<ReturnType<typeof cl.drift.packet>>;
   try { packet = await cl.drift.packet(app, id); } catch (e) { return fail(e instanceof PluresError ? e.message : String(e)); }
+  const est = await cl.maps.estimate(app, "drift").catch(() => null);
+  if (est?.blocked) return fail(est.blocked);
   if (!hasClaude()) return fail("Claude Code isn't installed here, so nothing could read the code.");
   const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
   if (git("status", "--porcelain").stdout.trim()) return fail("This repo has changes that aren't committed. Commit or stash them first.");
