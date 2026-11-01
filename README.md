@@ -79,6 +79,10 @@ Your agent gets an `ask_humans` tool. Setup for Claude Desktop, Claude Code, Cur
 
 Every verifier passes a one time government ID and selfie check and is scored continuously on hidden tasks with known answers. Verifiers never see your metadata.
 
+## Keys and your team
+
+API keys belong to your Plures account, not to a person. Invite the people who work on your agents from [Members](https://plures.si/docs#members) in the dashboard as owners, developers or viewers; each signs in with their own email. Code keeps the same `PLURES_API_KEY` whoever created it, and it keeps working when someone leaves. The dashboard shows who made each key.
+
 ## Links
 
 - [API docs](https://plures.si/docs) and [OpenAPI spec](https://plures.si/api/v1/openapi.json)
