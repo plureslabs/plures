@@ -175,7 +175,7 @@ export type Sample = { object: "sample"; rubric: string; sampled: boolean; sampl
 export type Release = { object: "release"; release: string; app: string; compared: number; b_wins: number; a_wins: number; ties: number; win_rate: number | null; low: number | null; high: number | null; verdict: string };
 
 /** One agent or product on your account. Tasks, the ledger view and the map are kept per app. */
-export type App = { object: "app"; id: string; name: string; default: boolean; created_at: string; tasks_30d?: number; waiting?: number; last_task_at?: string | null };
+export type App = { object: "app"; id: string; name: string; default: boolean; /** Keeps its history but takes no new work. */ archived: boolean; created_at: string; tasks_30d?: number; waiting?: number; last_task_at?: string | null };
 
 export type Balance = {
   object: "balance"; currency: "usd"; available_cents: number; held_cents: number; balance_cents: number;
@@ -184,7 +184,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.22.0";
+export const VERSION = "1.23.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -276,9 +276,13 @@ export class Plures {
     /** { name: "Support agent" }, with an optional id like "support-agent". */
     create: (params: { name: string; id?: string }) => this.req<App>("POST", "/api/v1/apps", params),
     retrieve: (id: string) => this.req<App>("GET", `/api/v1/apps/${encodeURIComponent(id)}`),
-    /** Rename it, change its id (its tasks move with it), or make it the default. */
-    update: (id: string, params: { name?: string; id?: string; default?: true }) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, params),
-    /** Only an app with no tasks can be deleted. */
+    /** Rename it, change its id (its tasks move with it), make it the default, or archive and restore it. */
+    update: (id: string, params: { name?: string; id?: string; default?: true; archived?: boolean }) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, params),
+    /** Keeps its tasks, ledger, map and grades readable, but it takes no new work and doesn't count toward the 25 app limit. */
+    archive: (id: string) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, { archived: true }),
+    /** Brings an archived app back into use. */
+    restore: (id: string) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, { archived: false }),
+    /** Only an app with no tasks can be deleted; archive one that has them. */
     del: (id: string) => this.req<{ object: "app"; id: string; deleted: true }>("DELETE", `/api/v1/apps/${encodeURIComponent(id)}`),
   };
 
@@ -380,8 +384,8 @@ export class Plures {
       this.req<{ object: "turn_grade"; turn: string }>("POST", `/api/v1/turns/${encodeURIComponent(id)}/grade`, g),
     /** What the grades say: per intent, misroutes, retrieval misses and missed asks. */
     insights: (app: string, opts: { days?: number } = {}) => this.req<Record<string, unknown>>("GET", `/api/v1/apps/${encodeURIComponent(app)}/turns/insights${opts.days ? `?days=${opts.days}` : ""}`),
-    /** Graded turns as eval data: routes (routing examples), retrieval ({ query, doc, must_contain }), qa ({ question, fact } or { question, unanswerable }), missed. */
-    export: async (app: string, kind: "routes" | "retrieval" | "qa" | "missed", opts: { since?: string } = {}) => {
+    /** Graded turns as eval data: routes (routing examples), qa ({ question, must_cover, sources_only } or { question, unanswerable: true }), missed. */
+    export: async (app: string, kind: "routes" | "qa" | "missed", opts: { since?: string } = {}) => {
       const q = new URLSearchParams({ kind, ...(opts.since ? { since: opts.since } : {}) });
       const r = await fetch(`${this.base}/api/v1/apps/${encodeURIComponent(app)}/turns/export?${q}`, { headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": this.ua } });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new PluresError(d?.error?.message ?? `HTTP ${r.status}`, r.status, d?.error?.type ?? "api_error"); }

@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.22.0"
+__version__ = "1.23.0"
 __all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
 
 
@@ -119,13 +119,22 @@ class Plures:
     def get_app(self, app_id):
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app_id))
 
-    def update_app(self, app_id, name=None, id=None, default=None):
-        """Renames an app, changes its id (its tasks move with it), or makes it the default (default=True)."""
-        body = {k: v for k, v in {"name": name, "id": id, "default": default}.items() if v is not None}
+    def update_app(self, app_id, name=None, id=None, default=None, archived=None):
+        """Renames an app, changes its id (its tasks move with it), makes it the default (default=True),
+        or archives it (archived=True) and restores it (archived=False)."""
+        body = {k: v for k, v in {"name": name, "id": id, "default": default, "archived": archived}.items() if v is not None}
         return self._req("PATCH", "/api/v1/apps/" + urllib.parse.quote(app_id), body)
 
+    def archive_app(self, app_id):
+        """Keeps its tasks, ledger, map and grades readable, but it takes no new work and doesn't count toward the 25 app limit."""
+        return self.update_app(app_id, archived=True)
+
+    def restore_app(self, app_id):
+        """Brings an archived app back into use."""
+        return self.update_app(app_id, archived=False)
+
     def delete_app(self, app_id):
-        """Deletes an app with no tasks."""
+        """Deletes an app with no tasks. Archive one that has them."""
         return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app_id))
 
     def map_guide(self):
@@ -271,7 +280,7 @@ class Plures:
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/turns/insights" + ("?days=" + str(days) if days else ""))
 
     def export_turns(self, app, kind="qa", since=None):
-        """Graded turns as eval data. kind: routes, retrieval, qa or missed."""
+        """Graded turns as eval data. kind: routes, qa ({question, must_cover, sources_only} or {question, unanswerable}) or missed."""
         q = {k: v for k, v in {"kind": kind, "since": since}.items() if v}
         h = {"authorization": "Bearer " + self.api_key, "user-agent": "plures-python/" + __version__}
         req = urllib.request.Request(self.base + "/api/v1/apps/" + urllib.parse.quote(app) + "/turns/export?" + urllib.parse.urlencode(q), headers=h)
