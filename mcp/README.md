@@ -30,7 +30,7 @@ A `pk_test_` key answers instantly with a simulated result (always the first opt
 
 **`ask_humans`**: send a judgment call to verified people.
 
-Set `route: "team"` to send a decision straight to your own team instead of verified people (for confidential or policy calls), `team` to pick one of your named teams, `team_votes` to have several of them vote, and `category` to let your routing rules decide. Live, each internal vote is $0.05.
+Set `route: "team"` to send a decision straight to your own team instead of verified people (for money and account decisions, and confidential or policy calls), `team` to pick one of your named teams, `team_votes` to have several of them vote, and `category` to let your routing rules decide. Live, each internal vote is $0.05.
 - `question` (required): what people should decide, answerable from the context alone
 - `options` (required): 2 to 8 possible answers
 - `context`: the material to judge, as plain text
@@ -50,7 +50,9 @@ Each result tells the agent the answer, how many people agreed and whether it is
 
 ## When agents should use it
 
-The server tells the agent to ask people before acting on judgment calls where a mistake is costly: a customer's tone or intent, a refund or payment, whether an invoice, listing or document matches, a moderation edge case. Not for anything it can check with code or a lookup.
+The server tells the agent to ask verified people before acting on judgment calls where a mistake is costly: whether an AI answer is correct and on policy, which of two model responses is better, a customer's tone or intent, whether a listing, document or screenshot matches, a moderation edge case. Not for anything it can check with code or a lookup.
+
+Money and account decisions (refunds, payments, invoices, payouts, account access) go to your own team: the agent sends them with `route: "team"`, or your routing rules can match them by `category`.
 
 Tasks are shown to strangers, so the agent is told not to include secrets or more personal data than the decision needs.
 

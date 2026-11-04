@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.5.0";
+const VERSION = "1.5.1";
 const KEY = process.env.PLURES_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;
@@ -16,12 +16,13 @@ const MAX_WAIT = 240;
 const server = new McpServer({ name: "plures", version: VERSION }, {
   instructions:
     "Plures sends a decision to ID verified people, who answer independently, and returns their consensus. " +
-    "Use ask_humans before you act on a judgment call you are not sure about, where a wrong call costs money, trust or safety: " +
-    "reading a customer's tone or intent, approving a refund or payment, checking that an invoice, listing or document matches, " +
-    "moderating an edge case, or confirming a fact that needs human eyes. Don't use it for things you can check with code or a lookup. " +
+    "Use ask_humans before you act on a judgment call you are not sure about, where a wrong call costs trust or safety: " +
+    "grading whether an AI answer is correct, safe and on policy, picking the better of two model responses, reading a customer's tone or intent, " +
+    "checking that a listing, document or screenshot matches what it claims, moderating an edge case, or confirming a fact that needs human eyes. " +
+    "Don't use it for things you can check with code or a lookup. " +
     "Act on the answer when agreement is 1; below that, treat it as uncertain and escalate or ask for more verifiers. " +
-    "For decisions only the company's own people should make (confidential data, policy calls, anything regulated), set route to team " +
-    "to send it straight to the developer's team instead of verified people. " +
+    "Money and account decisions (refunds, payments, invoices, payouts, account access) belong to the company's own people: " +
+    "set route to team for those, and for anything confidential, a policy call or regulated, so it goes straight to the developer's team instead of verified people. " +
     "When the user asks to map their app or agent for Plures, call get_mapping_guide, read the code the way it says, then call submit_agent_map. " +
     "Never put source code, secrets or customer data in a map.",
 });
@@ -109,12 +110,12 @@ server.registerTool("ask_humans", {
   description:
     "Send a decision to ID verified people before you act on it. Several people answer independently, each confirmed with Face ID, " +
     "and you get back the consensus answer and how strongly they agreed. Use it for judgment calls where being wrong is costly: " +
-    "tone and intent, refunds and payments, whether two things match, moderation edge cases. Write the question so a stranger can answer it " +
+    "evals of AI output, tone and intent, whether two things match, moderation edge cases. Send refunds, payments and other money calls with route team. Write the question so a stranger can answer it " +
     "from the context alone, and never include secrets or more personal data than the decision needs. Live keys use prepaid credit at $0.20 per answer (clips cost more by length), or $0.05 per internal vote with route team; test keys are free and simulated.",
   inputSchema: {
     question: z.string().min(3).max(1000).describe("What people should decide, e.g. \"Is this customer upset?\""),
     options: z.array(z.string().min(1).max(200)).min(2).max(8).describe("2 to 8 possible answers, e.g. [\"Yes\", \"No\"]"),
-    context: z.string().max(20000).optional().describe("The material to judge, as plain text: the message, the invoice lines, the listing"),
+    context: z.string().max(20000).optional().describe("The material to judge, as plain text: the AI answer and the policy it should follow, the message, the listing"),
     image_url: z.string().url().optional().describe("An https image shown with the question"),
     audio_url: z.string().url().optional().describe("An https recording people listen to in full before answering, such as a call your voice agent handled. Up to 3 minutes; needs media_seconds"),
     video_url: z.string().url().optional().describe("An https video (MP4) people watch in full before answering. Up to 3 minutes; needs media_seconds. Not with audio_url"),
@@ -122,7 +123,7 @@ server.registerTool("ask_humans", {
     sensitive: z.boolean().optional().describe("Set true for violent, graphic or disturbing content, so only people who opted in see it, behind a warning"),
     instructions: z.string().max(2000).optional().describe("Short guidance shown under the question"),
     verifiers: z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(7), z.literal(9)]).optional().describe("How many people answer. Default 3; use 5 for higher stakes"),
-    route: z.enum(["verifiers", "team"]).optional().describe("verifiers (default) asks ID verified people first. team sends it straight to the developer's own people, for confidential or policy decisions; $0.05 per internal vote live"),
+    route: z.enum(["verifiers", "team"]).optional().describe("verifiers (default) asks ID verified people first. team sends it straight to the developer's own people, for money and account decisions and confidential or policy calls; $0.05 per internal vote live"),
     category: z.string().max(64).optional().describe("A label the developer's routing rules match on, like \"refunds\"; the rule may choose the route and team"),
     team: z.string().max(40).optional().describe("The name of one of the developer's teams, like \"Finance\", to decide instead of the main team"),
     team_votes: z.number().int().min(1).max(10).optional().describe("With route team: how many people on the team vote; the majority decides"),

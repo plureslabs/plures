@@ -2,7 +2,7 @@
 
 **Human judgment as an API for AI agents.** Plures sends a decision your agent isn't sure about to ID verified people. Several answer independently, each confirmed with Face ID, and your agent gets their consensus back before it acts.
 
-Use it as the human in the loop (HITL) step for the calls where a wrong answer costs money or trust: reading a customer's tone, approving a refund, checking an invoice against its order, catching a listing that doesn't match its photo, moderating an edge case.
+Use it as the human in the loop (HITL) step for the calls where a wrong answer costs trust: grading whether an AI answer is correct and on policy, reading a customer's tone, catching a listing that doesn't match its photo, moderating an edge case. Money and account decisions, like approving a refund or checking an invoice against its order, go straight to your own team with `route: "team"`.
 
 | Package | Install | For |
 | --- | --- | --- |
