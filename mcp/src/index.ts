@@ -8,8 +8,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.5.1";
-const KEY = process.env.PLURES_API_KEY;
+const VERSION = "1.5.2";
+// PLURES_API_KEY, or the API key set in the Claude plugin settings.
+const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
 const MAX_WAIT = 240;
 
@@ -81,7 +82,7 @@ const fail = (e: unknown) => ({
 
 const noKey = () => ({
   isError: true,
-  content: [{ type: "text" as const, text: "PLURES_API_KEY isn't set. Add it to this MCP server's environment. A free test key is at https://plures.si/?for=developers#join" }],
+  content: [{ type: "text" as const, text: "No Plures API key. Set PLURES_API_KEY in this MCP server's environment, or the API key in the Plures plugin settings. A free test key is at https://plures.si/?for=developers#join" }],
 });
 
 // Waits for an answer, sending progress so clients that support it keep the call open.

@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "plures",
-      "source": "./",
+      "source": "./plugin",
       "description": "Human in the loop for AI agents: ask ID verified people to check a decision before your agent acts. Skill plus the plures-mcp server.",
       "category": "development",
       "homepage": "https://plures.si/docs"

@@ -9,7 +9,7 @@ Use it as the human in the loop (HITL) step for the calls where a wrong answer c
 | [`plures`](js) (npm) | `npm install plures` | TypeScript and JavaScript: Node 18+, Bun, Deno, edge |
 | [`plures`](python) (PyPI) | `pip install plures` | Python 3.8+, no dependencies |
 | [`plures-mcp`](mcp) (npm) | `npx -y plures-mcp` | Claude, Cursor, VS Code and any MCP client or agent |
-| [Agent skill](skills/plures) | `npx skills add plureslabs/plures` | Claude Code, Cursor, Codex and other coding agents |
+| [Agent skill](plugin/skills/plures) | `npx skills add plureslabs/plures` | Claude Code, Cursor, Codex and other coding agents |
 
 [![Plures MCP server](https://mcprush.com/badge/plures-mcp/card.svg)](https://mcprush.com/to/plures-mcp?ref=badge)
 
@@ -65,7 +65,7 @@ Your agent gets an `ask_humans` tool. Setup for Claude Desktop, Claude Code, Cur
 
 ## Teach your coding agent Plures
 
-A [skill](skills/plures/SKILL.md) tells Claude Code, Cursor, Codex and other coding agents when to add a human check and how to wire it in.
+A [skill](plugin/skills/plures/SKILL.md) tells Claude Code, Cursor, Codex and other coding agents when to add a human check and how to wire it in.
 
 Claude Code plugin (the skill plus the MCP server):
 
@@ -74,7 +74,7 @@ Claude Code plugin (the skill plus the MCP server):
 /plugin install plures@plures
 ```
 
-Set `PLURES_API_KEY` in your environment first so the MCP server can start.
+Claude Code asks for your Plures API key when you install it.
 
 Any agent, with [skills.sh](https://skills.sh):
 
