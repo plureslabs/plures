@@ -44,6 +44,18 @@ from plures import verify_webhook
 event = verify_webhook(request.get_data(), request.headers.get("Plures-Signature"), WEBHOOK_SECRET)
 ```
 
+## Pay per decision with x402 (preview)
+
+Agents can buy a single decision with no API key, paying in USDC on Base through [x402](https://www.x402.org). It runs on the Base Sepolia test network for now; real USDC is coming. Pass a `payment` function that takes the payment requirements and returns the base64 `X-PAYMENT` header your x402 wallet signs:
+
+```python
+plures = Plures(payment=sign_x402_payment)  # your x402 signer
+task = plures.create_task("Should this customer get a refund?", ["Approve", "Decline"])
+plures.get_task(task["id"])  # the receipt is remembered
+```
+
+Without a `payment` function, a keyless request raises `PaymentRequiredError` with the requirements in `e.accepts`. See [Pay with x402](https://plures.si/docs#x402).
+
 ## API
 
 - `log_turn(question, answer, intent=None, rerouted_to=None, retrieval=None, sources=None, session=None, channel=None)`: answer reviews for assistants. Plures picks the turns that went wrong plus a few at random for your team to grade. `turn_insights(app)` and `export_turns(app, kind)` (routes, qa, missed) turn the grades into routing examples and eval sets.

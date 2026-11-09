@@ -184,7 +184,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.23.0";
+export const VERSION = "1.24.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -198,16 +198,39 @@ export class PluresError extends Error {
   constructor(message: string, readonly status: number, readonly type: string) { super(message); }
 }
 
+/** Preview. x402 payment requirements for one decision, paid in USDC on Base. */
+export type PaymentRequirements = {
+  scheme: "exact"; network: "base" | "base-sepolia"; maxAmountRequired: string; asset: string; payTo: string;
+  resource: string; description: string; mimeType?: string; maxTimeoutSeconds: number; extra?: { name: string; version: string };
+};
+/**
+ * Preview, available when x402 is enabled on the server. Given the requirements,
+ * return the base64 X-PAYMENT header your x402 wallet signs (for example with x402's
+ * createPaymentHeader). The SDK sends the request again with it, once.
+ */
+export type PayForDecision = (requirements: PaymentRequirements[]) => string | Promise<string>;
+/** Preview. Thrown when a keyless request needs payment and no `payment` function was given. */
+export class PaymentRequiredError extends PluresError {
+  constructor(message: string, readonly accepts: PaymentRequirements[], readonly x402Version: number) { super(message, 402, "payment_required"); }
+}
+
 export class Plures {
   private base: string;
   private apiKey: string;
   /** The app tasks go to when they don't name one. From opts.app or PLURES_APP. */
   readonly app: string | null;
   private ua: string;
-  constructor(apiKey?: string, opts: { baseUrl?: string; app?: string; userAgent?: string } = {}) {
+  private payment: PayForDecision | null;
+  private receipts = new Map<string, string>();
+  /**
+   * opts.payment (preview): pay per decision in USDC with x402 instead of an API key,
+   * available when x402 is enabled on the server. With it, the API key is optional.
+   */
+  constructor(apiKey?: string, opts: { baseUrl?: string; app?: string; userAgent?: string; payment?: PayForDecision } = {}) {
     const key = apiKey ?? (typeof process !== "undefined" ? process.env?.PLURES_API_KEY : undefined);
-    if (!key) throw new Error("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join");
-    this.apiKey = key;
+    this.payment = opts.payment ?? null;
+    if (!key && !this.payment) throw new Error("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join");
+    this.apiKey = key ?? "";
     this.ua = opts.userAgent ?? `plures-js/${VERSION}`;
     this.app = opts.app ?? (typeof process !== "undefined" ? process.env?.PLURES_APP : undefined) ?? null;
     this.base = (opts.baseUrl ?? (typeof process !== "undefined" ? process.env?.PLURES_BASE_URL : undefined) ?? "https://plures.si").replace(/\/$/, "");
@@ -217,11 +240,12 @@ export class Plures {
     for (let attempt = 0; ; attempt++) {
       const r = await fetch(this.base + path, {
         method,
-        headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": this.ua, ...(body ? { "content-type": "application/json" } : {}), ...(this.app ? { "plures-app": this.app } : {}), ...headers },
+        headers: { ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}), "user-agent": this.ua, ...(body ? { "content-type": "application/json" } : {}), ...(this.app && this.apiKey ? { "plures-app": this.app } : {}), ...headers },
         body: body ? JSON.stringify(body) : undefined,
       });
       if (r.status >= 500 && attempt < 2) { await sleep(500 * 2 ** attempt); continue; }
       const data = await r.json().catch(() => ({}));
+      if (r.status === 402 && Array.isArray(data?.accepts)) throw new PaymentRequiredError(data.error ?? "Payment required", data.accepts, data.x402Version ?? 1);
       if (!r.ok) throw new PluresError(data?.error?.message ?? `HTTP ${r.status}`, r.status, data?.error?.type ?? "api_error");
       return data as T;
     }
@@ -229,9 +253,27 @@ export class Plures {
 
   tasks = {
     /** Sends a question to verified people. Pass an idempotency key to make retries safe. */
-    create: (params: CreateTask, opts: { idempotencyKey?: string } = {}) =>
-      this.req<Task>("POST", "/api/v1/tasks", params, opts.idempotencyKey ? { "idempotency-key": opts.idempotencyKey } : {}),
-    retrieve: (id: string) => this.req<Task>("GET", `/api/v1/tasks/${encodeURIComponent(id)}`),
+    /**
+     * With no API key and a `payment` function (preview, x402 enabled on the server), a 402
+     * is paid in USDC and the request sent once more; the task then has a `receipt`.
+     */
+    create: async (params: CreateTask, opts: { idempotencyKey?: string } = {}): Promise<Task & { receipt?: string }> => {
+      const h: Record<string, string> = opts.idempotencyKey ? { "idempotency-key": opts.idempotencyKey } : {};
+      try {
+        return await this.req<Task>("POST", "/api/v1/tasks", params, h);
+      } catch (e) {
+        if (!(e instanceof PaymentRequiredError) || this.apiKey || !this.payment) throw e;
+        const xPayment = await this.payment(e.accepts);
+        const t = await this.req<Task & { receipt?: string }>("POST", "/api/v1/tasks", params, { ...h, "x-payment": xPayment });
+        if (t.receipt) this.receipts.set(t.id, t.receipt);
+        return t;
+      }
+    },
+    /** opts.receipt (preview): read a task paid with x402 without an API key. Remembered automatically after create. */
+    retrieve: (id: string, opts: { receipt?: string } = {}) => {
+      const receipt = opts.receipt ?? this.receipts.get(id);
+      return this.req<Task>("GET", `/api/v1/tasks/${encodeURIComponent(id)}`, undefined, receipt && !this.apiKey ? { "x-payment-receipt": receipt } : {});
+    },
     list: (params: { status?: TaskStatus; limit?: number; starting_after?: string; app?: string } = {}) => {
       const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)]));
       return this.req<{ object: "list"; data: Task[]; has_more: boolean }>("GET", `/api/v1/tasks${q.size ? `?${q}` : ""}`);

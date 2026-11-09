@@ -42,6 +42,22 @@ if (event.type === "task.completed" && event.data.result?.agreement === 1) {
 }
 ```
 
+## Pay per decision with x402 (preview)
+
+Agents can buy a single decision with no API key, paying in USDC on Base through [x402](https://www.x402.org). It runs on the Base Sepolia test network for now; real USDC is coming. Pass a `payment` function that signs the x402 payment header with your wallet:
+
+```ts
+import { createPaymentHeader } from "x402/client";
+
+const plures = new Plures(undefined, {
+  payment: (accepts) => createPaymentHeader(wallet, 1, accepts[0]), // a viem wallet holding USDC
+});
+const task = await plures.tasks.create({ question, options: ["Approve", "Decline"] });
+await plures.tasks.retrieve(task.id); // the receipt is remembered
+```
+
+Without a `payment` function, a keyless request throws `PaymentRequiredError` with the requirements in `accepts`. See [Pay with x402](https://plures.si/docs#x402).
+
 ## API
 
 - `plures.check(id, data, overrides?)`: run a check from your app's map, one line before the action it guards: `const check = await plures.check("refunds", { order_total, reason }); if (check.answer !== "Approve") return`. The check saved on Plures supplies the question, options, which fields people see (the rest come back in `kept_private`), who decides, how often, its conditions and what happens on a timeout, so you change them on Plures, not in code. `checked` says whether a person looked; `skipped_because` says why not. Overrides: `question`, `options`, `verifiers`, `team`, `route`, `sample`, `timeout`, `always`.
