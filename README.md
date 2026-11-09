@@ -9,7 +9,7 @@ Use it as the human in the loop (HITL) step for the calls where a wrong answer c
 | [`plures`](js) (npm) | `npm install plures` | TypeScript and JavaScript: Node 18+, Bun, Deno, edge |
 | [`plures`](python) (PyPI) | `pip install plures` | Python 3.8+, no dependencies |
 | [`plures-mcp`](mcp) (npm) | `npx -y plures-mcp` | Claude, Cursor, VS Code and any MCP client or agent |
-| [Agent skill](plugin/skills/plures) | `npx skills add plureslabs/plures` | Claude Code, Cursor, Codex and other coding agents |
+| [Agent skill](skills/plures) | `npx skills add plureslabs/plures` | Claude Code, Codex, Cursor, Gemini CLI and other coding agents |
 
 [![Plures MCP server](https://mcprush.com/badge/plures-mcp/card.svg)](https://mcprush.com/to/plures-mcp?ref=badge)
 
@@ -65,18 +65,31 @@ Your agent gets an `ask_humans` tool. Setup for Claude Desktop, Claude Code, Cur
 
 ## Teach your coding agent Plures
 
-A [skill](plugin/skills/plures/SKILL.md) tells Claude Code, Cursor, Codex and other coding agents when to add a human check and how to wire it in.
+A [skill](skills/plures/SKILL.md) tells your coding agent when to add a human check and how to wire it in. The plugins below install the skill together with the MCP server.
 
-Claude Code plugin (the skill plus the MCP server):
+**Claude Code** (asks for your API key when you install it):
 
 ```
 /plugin marketplace add plureslabs/plures
 /plugin install plures@plures
 ```
 
-Claude Code asks for your Plures API key when you install it.
+**OpenAI Codex** (set `PLURES_API_KEY` in your environment first):
 
-Any agent, with [skills.sh](https://skills.sh):
+```bash
+codex plugin marketplace add https://github.com/plureslabs/plures
+codex plugin add plures@plures
+```
+
+**Cursor:** add `plureslabs/plures` as a plugin marketplace, then install **Plures** and enter your API key.
+
+**Gemini CLI** (asks for your API key when you install it):
+
+```bash
+gemini extensions install https://github.com/plureslabs/plures
+```
+
+**Any agent**, skill only, with [skills.sh](https://skills.sh):
 
 ```bash
 npx skills add plureslabs/plures

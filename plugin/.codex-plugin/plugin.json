@@ -1,0 +1,31 @@
+{
+  "name": "plures",
+  "version": "1.0.1",
+  "description": "Human in the loop for AI agents: ask ID verified people to check a decision before your agent acts. Adds the Plures skill and the plures-mcp server (ask_humans).",
+  "author": { "name": "Plures Labs", "email": "hello@plures.si", "url": "https://plures.si" },
+  "homepage": "https://plures.si/docs",
+  "repository": "https://github.com/plureslabs/plures",
+  "license": "MIT",
+  "keywords": ["human-in-the-loop", "hitl", "human review", "approvals", "agents", "mcp", "verification"],
+  "skills": "./skills/",
+  "mcpServers": "./.codex-plugin/mcp.json",
+  "interface": {
+    "displayName": "Plures",
+    "shortDescription": "Ask verified people before your agent acts",
+    "longDescription": "Plures sends a decision your agent isn't sure about to ID verified people and returns their consensus, or routes it to your own team. The skill teaches Codex when to add a human check and how to wire it in; the MCP server gives it an ask_humans tool. Set PLURES_API_KEY first: a free pk_test_ key from plures.si answers instantly without reaching real people.",
+    "developerName": "Plures Labs",
+    "category": "Coding",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": [
+      "Add a human check before refunds go out",
+      "Ask verified people whether this customer message sounds upset",
+      "Map this app for Plures"
+    ],
+    "logo": "./assets/logo.png",
+    "brandColor": "#5B5BF7",
+    "websiteURL": "https://plures.si",
+    "privacyPolicyURL": "https://plures.si/privacy",
+    "termsOfServiceURL": "https://plures.si/terms",
+    "supportURL": "https://plures.si/support"
+  }
+}

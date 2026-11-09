@@ -1,0 +1,8 @@
+{
+  "name": "plures",
+  "owner": { "name": "Plures Labs", "email": "hello@plures.si" },
+  "metadata": { "description": "Plures: human judgment as an API for AI agents." },
+  "plugins": [
+    { "name": "plures", "source": "plugin", "description": "Ask ID verified people to check a decision before your agent acts. Skill plus the plures-mcp server." }
+  ]
+}
