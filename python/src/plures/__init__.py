@@ -94,7 +94,9 @@ class Plures:
         defaults to the client's app), and use_precedent (look in your judgment graph first:
         when people already settled cases like this one, the task comes back completed with
         decided_by "precedent" for $0.05 live, and one in ten still goes to people as an
-        audit; not with route "team"). The result's decided_by is "verifiers", "team" or
+        audit; not with route "team"), and fast (paid speed: served first and pushed at once,
+        with a bonus for verifiers who answer within a minute; $0.10 more per answer live; not
+        with route "team"). The result's decided_by is "verifiers", "team" or
         "precedent"; result["team"] has how your team voted, and task["precedent"] the
         settled past decisions behind a precedent call.
 

@@ -79,7 +79,7 @@ export type TeamTally = {
 /** How your team decides: how many vote, whether they must all agree, a lead for splits, passkey confirmation. */
 export type Consensus = { votes: number; unanimous: boolean; lead: string | null; passkey: boolean };
 /** Set when the decision went to your team: straight there (team_only), or because verifiers didn't all agree or answer in time. */
-export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only"; escalated_at: string; verifiers: Result | null; team_deadline?: string; lead_called_at?: string };
+export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only" | "unclear"; escalated_at: string; verifiers: Result | null; team_deadline?: string; lead_called_at?: string };
 export type Task = {
   id: string; object: "task"; app?: string | null; mode: "live" | "test"; status: TaskStatus;
   /** false when a sampled check didn't pick this task: it wasn't sent to people, and result.answer is the first option. */
@@ -94,6 +94,10 @@ export type Task = {
   team_consensus?: { votes: number; unanimous: boolean; lead: boolean; passkey: boolean };
   /** Live tasks only: price per answer and what answers have cost so far, in US cents. A task sent straight to your team is billed per internal vote, billed_as "internal_votes". */
   cost?: { per_answer_cents: number; answers_billed: number; total_cents: number; billed_as?: "answers" | "internal_votes" | "precedent" } | null;
+  /** Whether the task was sent with paid speed (fast: true). */
+  fast?: boolean;
+  /** How many verifiers said none of the options fits, or it can't be answered from the context. Two on a pending task send it to your team with reason "unclear". */
+  unclear_reports?: number;
   /** With use_precedent: the settled past decisions behind this one. audited false means precedent decided it ($0.05 live); true means people checked it anyway (one in ten). */
   precedent?: TaskPrecedent | null;
   /** Where this decision sits on the Plures ledger, once recorded. */
@@ -144,6 +148,8 @@ export type CreateTask = {
    * it. One in ten still goes to people as an audit. Not with route "team".
    */
   use_precedent?: boolean;
+  /** Paid speed: served first to verified people and pushed at once, with a bonus for answers within a minute. $0.10 more per answer live. Not with route "team". */
+  fast?: boolean;
 };
 /** The settled past decisions behind a task sent with use_precedent. */
 export type TaskPrecedent = { support: number; min_similarity: number; min_agreement: number; task_ids: string[]; audited: boolean; suggested?: string };

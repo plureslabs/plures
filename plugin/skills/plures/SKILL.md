@@ -89,6 +89,7 @@ To look without deciding, `plures.precedents.search({ question, context, options
 - `instructions`: the rule to apply, when there is one.
 - `verifiers`: 1, 3, 5, 7 or 9 (default 3). More people for higher stakes.
 - `sensitive: true` for disturbing content, shown only to people who opted in.
+- `fast: true` when the agent is waiting on the answer: served first and pushed at once, $0.10 more per answer live.
 
 ## Production
 

@@ -134,6 +134,7 @@ server.registerTool("ask_humans", {
     team: z.string().max(40).optional().describe("The name of one of the developer's teams, like \"Finance\", to decide instead of the main team"),
     team_votes: z.number().int().min(1).max(10).optional().describe("With route team: how many people on the team vote; the majority decides"),
     app: z.string().max(40).optional().describe("Which of the developer's apps this is for, like \"support-agent\". Default: PLURES_APP, then the default app"),
+    fast: z.boolean().optional().describe("Paid speed for a decision that can't wait: served first to verified people and pushed at once, with a bonus for answers within a minute. $0.10 more per answer live. Not with route team"),
     use_precedent: z.boolean().optional().describe("Look in the developer's judgment graph first. When people already settled cases like this (three or more close matches with the same options, all decided the same way), it's decided by precedent at once for $0.05 live; one in ten still goes to people as an audit. Not with route team"),
     wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe(`How long to wait for the answer before returning a task_id to check later. Default 45, up to ${MAX_WAIT}`),
   },
