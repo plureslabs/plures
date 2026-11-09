@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "plures": {
+      "command": "npx",
+      "args": ["-y", "plures-mcp@1.5.2"],
+      "env_vars": ["PLURES_API_KEY"]
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "plures",
+  "displayName": "Plures",
+  "version": "1.0.1",
+  "description": "Human in the loop for AI agents: ask ID verified people to check a decision before your agent acts. Adds the Plures skill and the plures-mcp server (ask_humans).",
+  "author": { "name": "Plures Labs", "email": "hello@plures.si" },
+  "homepage": "https://plures.si/docs",
+  "repository": "https://github.com/plureslabs/plures",
+  "license": "MIT",
+  "keywords": ["human-in-the-loop", "hitl", "human review", "approvals", "agents", "mcp", "verification"],
+  "logo": "assets/logo.png",
+  "skills": ["skills/plures"],
+  "variables": {
+    "type": "object",
+    "properties": {
+      "PLURES_API_KEY": {
+        "type": "string",
+        "title": "Plures API key",
+        "description": "Your Plures API key. A free pk_test_ key from https://plures.si/?for=developers#join answers instantly without reaching real people."
+      }
+    },
+    "required": ["PLURES_API_KEY"]
+  },
+  "mcpServers": {
+    "plures": {
+      "command": "npx",
+      "args": ["-y", "plures-mcp@1.5.2"],
+      "env": { "PLURES_API_KEY": "${PLURES_API_KEY}" }
+    }
+  }
+}

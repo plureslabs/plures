@@ -1,0 +1,14 @@
+# The Plures skill ships twice: skills/plures for skills.sh and Gemini CLI (which need it at the
+# repo root) and plugin/skills/plures for the Claude, Codex and Cursor plugins (which can only load
+# files inside the plugin folder). This keeps the two copies identical.
+name: Skill copies match
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: diff -r skills/plures plugin/skills/plures || { echo "Edit both copies of the skill (or copy one over the other)."; exit 1; }
