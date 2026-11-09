@@ -63,8 +63,8 @@ export type CheckResult = Task & Omit<CheckExtra, "kept_private" | "skipped_beca
 export type TaskStatus = "pending" | "completed" | "expired" | "canceled" | "skipped";
 export type Result = {
   answer: string | null; label: string | null; agreement: number; answers: number; votes: Record<string, number>; tie?: boolean;
-  /** Who made the final call: verified people, or your team after verifiers didn't all agree. */
-  decided_by?: "verifiers" | "team";
+  /** Who made the final call: verified people, your team, or precedent (settled past decisions, with use_precedent). */
+  decided_by?: "verifiers" | "team" | "plures" | "precedent";
   /** The team member who decided, when decided_by is "team". */
   reviewer?: string;
   note?: string;
@@ -93,7 +93,9 @@ export type Task = {
   team?: string | null;
   team_consensus?: { votes: number; unanimous: boolean; lead: boolean; passkey: boolean };
   /** Live tasks only: price per answer and what answers have cost so far, in US cents. A task sent straight to your team is billed per internal vote, billed_as "internal_votes". */
-  cost?: { per_answer_cents: number; answers_billed: number; total_cents: number; billed_as?: "answers" | "internal_votes" } | null;
+  cost?: { per_answer_cents: number; answers_billed: number; total_cents: number; billed_as?: "answers" | "internal_votes" | "precedent" } | null;
+  /** With use_precedent: the settled past decisions behind this one. audited false means precedent decided it ($0.05 live); true means people checked it anyway (one in ten). */
+  precedent?: TaskPrecedent | null;
   /** Where this decision sits on the Plures ledger, once recorded. */
   ledger?: { seq: number; url: string } | null;
   webhook_url: string | null; created_at: string; completed_at: string | null; expires_at: string;
@@ -135,7 +137,24 @@ export type CreateTask = {
   team_unanimous?: boolean;
   /** Which of your apps this task belongs to, like "support-agent". Defaults to the client's app, then your default app. */
   app?: string;
+  /**
+   * Look in your judgment graph first. When people already settled cases like this one (at least
+   * three close matches with the same options, all decided the same way with strong agreement),
+   * the task comes back completed with decided_by "precedent" for $0.05 live, and people never see
+   * it. One in ten still goes to people as an audit. Not with route "team".
+   */
+  use_precedent?: boolean;
 };
+/** The settled past decisions behind a task sent with use_precedent. */
+export type TaskPrecedent = { support: number; min_similarity: number; min_agreement: number; task_ids: string[]; audited: boolean; suggested?: string };
+/** A past decision from your judgment graph that looks like the case you asked about. */
+export type Precedent = {
+  object: "precedent"; task_id: string; question: string; answer: string | null; label: string | null; agreement: number | null;
+  decided_by: string | null; category: string | null; app: string | null; decided_at: string; similarity: number;
+};
+/** Offered only when several close cases with the same options were all decided the same way with strong agreement. */
+export type PrecedentSuggestion = { answer: string; label: string | null; support: number; min_similarity: number; min_agreement: number; task_ids: string[] };
+export type PrecedentSearch = { object: "precedent_search"; mode: "live" | "test"; considered: number; suggestion: PrecedentSuggestion | null; data: Precedent[] };
 /** Your main team, named teams and rules by category. */
 export type RoutingRule = { category: string; route: Route; group: string | null; escalate_below: number | null };
 export type Routing = {
@@ -184,7 +203,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.24.0";
+export const VERSION = "1.25.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -449,6 +468,16 @@ export class Plures {
     /** After reading the code: the diagnosis, and the branch with the fix if there is one. Plures opens the pull request. */
     report: (app: string, id: string, p: { diagnosis: DriftDiagnosis; branch?: string | null } | { error: string }) =>
       this.req<{ object: "drift_fix"; case: string; status: string; pull_request?: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/drift/${encodeURIComponent(id)}/report`, p),
+  };
+
+  /**
+   * Your judgment graph: every decision people made for you, kept per account and mode. search
+   * returns the closest past decisions and, when the case is settled, a suggestion. Free. To have
+   * a task decided by precedent when it's settled, send it with use_precedent: true instead.
+   */
+  precedents = {
+    search: (p: { question: string; context?: string; category?: string; app?: string; options?: (string | Option)[]; limit?: number }) =>
+      this.req<PrecedentSearch>("POST", "/api/v1/precedents", p),
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */

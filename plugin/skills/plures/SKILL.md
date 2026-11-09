@@ -75,6 +75,12 @@ curl https://plures.si/api/v1/tasks \
 
 The result has `answer` (the option most people chose, or null on a tie or expiry), `agreement` (0 to 1), `answers` and `votes`. A good default: act automatically only at `agreement === 1` and send anything lower to the team. If the developer has added reviewers at https://plures.si/dashboard/team, Plures does that itself: the task stays pending until a reviewer decides and comes back with `decided_by: "team"`.
 
+## Precedents: decide settled cases from the judgment graph
+
+Every decision people make for the developer joins their judgment graph. For routine calls that repeat, send the task with `use_precedent: true` (Python `use_precedent=True`). When people already settled cases like this one (three or more close matches with the same options, all decided the same way with strong agreement), the task comes back completed at once with `decided_by: "precedent"` for $0.05 live, and `task.precedent` lists the past decisions behind it. Otherwise it goes to people as usual. One in ten settled cases still goes to people as an audit. Not with `route: "team"`.
+
+To look without deciding, `plures.precedents.search({ question, context, options })` (Python `find_precedents(...)`, MCP `find_precedents`) returns the closest past decisions and a `suggestion` when settled. It's free.
+
 ## Writing a good task
 
 - `question`: one decision, answerable from `context` alone by someone with no other knowledge of the app.

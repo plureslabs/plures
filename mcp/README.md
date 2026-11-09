@@ -38,7 +38,10 @@ Set `route: "team"` to send a decision straight to your own team instead of veri
 - `audio_url` or `video_url` with `media_seconds`: a clip up to 3 minutes that people play through before answering
 - `sensitive`: disturbing content, shown only to people who opted in
 - `verifiers`: 1, 3, 5, 7 or 9 (default 3)
+- `use_precedent`: look in your judgment graph first. When people already settled cases like this one, it's decided by precedent at once for $0.05 live; one in ten still goes to people as an audit
 - `wait_seconds`: how long to wait for the answer, 0 to 240 (default 45). If people haven't answered by then, the tool returns a `task_id` to check later.
+
+**`find_precedents`**: how people decided similar cases before, closest first, with a suggestion when the case is settled. Free.
 
 **`get_human_answer`**: check a task by `task_id`, optionally waiting.
 

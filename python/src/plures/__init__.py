@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.24.0"
+__version__ = "1.25.0"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -91,8 +91,12 @@ class Plures:
         your team, $0.05 per internal vote live), category (matches your routing rules),
         team (the name of one of your teams), team_votes (how many of the team vote,
         majority decides), team_unanimous and app (which of your apps, like "support-agent";
-        defaults to the client's app). The result's decided_by is "verifiers" or
-        "team"; result["team"] has how your team voted.
+        defaults to the client's app), and use_precedent (look in your judgment graph first:
+        when people already settled cases like this one, the task comes back completed with
+        decided_by "precedent" for $0.05 live, and one in ten still goes to people as an
+        audit; not with route "team"). The result's decided_by is "verifiers", "team" or
+        "precedent"; result["team"] has how your team voted, and task["precedent"] the
+        settled past decisions behind a precedent call.
 
         Preview: with no API key and a payment function (x402 enabled on the server), a
         402 is paid in USDC and the request sent once more; the task then has a receipt.
@@ -108,6 +112,14 @@ class Plures:
             if task.get("receipt"):
                 self._receipts[task["id"]] = task["receipt"]
             return task
+
+    def find_precedents(self, question, context=None, category=None, app=None, options=None, limit=None):
+        """Searches your judgment graph: the closest past decisions people made for you on cases
+        like this one, in this key's mode. Free. suggestion is set only when several close cases
+        with the same options were all decided the same way with strong agreement. To have a task
+        decided by precedent when it's settled, send create_task(..., use_precedent=True)."""
+        body = {k: v for k, v in {"question": question, "context": context, "category": category, "app": app, "options": options, "limit": limit}.items() if v is not None}
+        return self._req("POST", "/api/v1/precedents", body)
 
     def get_task(self, task_id, receipt=None):
         """receipt (preview): read a task paid with x402 without an API key. Remembered after create_task."""

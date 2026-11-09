@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.5.2";
+const VERSION = "1.6.0";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -24,6 +24,8 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "Act on the answer when agreement is 1; below that, treat it as uncertain and escalate or ask for more verifiers. " +
     "Money and account decisions (refunds, payments, invoices, payouts, account access) belong to the company's own people: " +
     "set route to team for those, and for anything confidential, a policy call or regulated, so it goes straight to the developer's team instead of verified people. " +
+    "For routine calls the developer's people have decided many times before, set use_precedent on ask_humans: when the case is settled in their judgment graph it is decided by precedent for $0.05, otherwise it goes to people as usual. " +
+    "find_precedents shows how similar cases were decided, for free. " +
     "When the user asks to map their app or agent for Plures, call get_mapping_guide, read the code the way it says, then call submit_agent_map. " +
     "Never put source code, secrets or customer data in a map.",
 });
@@ -40,6 +42,7 @@ const fmt = (t: Task) => {
 // Fields added in plures 1.5 and 1.6, read safely whatever SDK version is installed.
 type TaskPlus = Task & {
   route?: "verifiers" | "team"; team?: string | null; team_consensus?: { votes: number };
+  precedent?: { support: number; min_agreement: number; audited: boolean } | null;
   escalation?: (Task["escalation"] & { reason?: string }) | null;
   result: (NonNullable<Task["result"]> & { team?: { votes: Record<string, number>; agreement: number; voters: { lead: boolean }[]; decided_by_lead: boolean } }) | null;
 };
@@ -57,6 +60,8 @@ const describe = (task: Task) => {
   const r = t.result;
   const votes = r ? Object.entries(r.votes).map(([k, v]) => `${label(k)}: ${v}`).join(", ") : "none";
   if (t.status === "expired") return `Task ${t.id} expired before enough people answered. Votes so far: ${votes}. Treat this as unverified.`;
+  if ((r?.decided_by as string) === "precedent" && r?.answer)
+    return `Settled by precedent: ${label(r.answer)}. People decided ${t.precedent?.support ?? "several"} close cases this way before, with at least ${Math.round((t.precedent?.min_agreement ?? r.agreement) * 100)}% agreement. Safe to act on. Task ${t.id}.`;
   const tv = r?.team;
   const teamVotes = tv && tv.voters.length > 1 ? ` ${tv.voters.filter((v) => !v.lead).length} people voted, ${Math.round(tv.agreement * 100)}% agreed${tv.decided_by_lead ? ", and the lead made the final call" : ""}.` : "";
   if (r?.decided_by === "team" && r.answer !== null && t.route === "team")
@@ -129,6 +134,7 @@ server.registerTool("ask_humans", {
     team: z.string().max(40).optional().describe("The name of one of the developer's teams, like \"Finance\", to decide instead of the main team"),
     team_votes: z.number().int().min(1).max(10).optional().describe("With route team: how many people on the team vote; the majority decides"),
     app: z.string().max(40).optional().describe("Which of the developer's apps this is for, like \"support-agent\". Default: PLURES_APP, then the default app"),
+    use_precedent: z.boolean().optional().describe("Look in the developer's judgment graph first. When people already settled cases like this (three or more close matches with the same options, all decided the same way), it's decided by precedent at once for $0.05 live; one in ten still goes to people as an audit. Not with route team"),
     wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe(`How long to wait for the answer before returning a task_id to check later. Default 45, up to ${MAX_WAIT}`),
   },
   outputSchema: result,
@@ -141,6 +147,35 @@ server.registerTool("ask_humans", {
     const created = await plures.tasks.create({ ...params, ...(app ? { app } : {}), metadata: { source: "mcp" } } as Parameters<typeof plures.tasks.create>[0]);
     const t = created.status === "pending" && wait > 0 ? await settle(created.id, wait, progressFor(extra, Math.ceil(wait / 3))) : created;
     return out(t);
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("find_precedents", {
+  title: "Find how people decided similar cases",
+  description: "Searches the developer's judgment graph: past decisions people made on cases like this one, closest first, with the answer and how strongly they agreed. " +
+    "Returns a suggestion only when the case is settled: several close cases with the same options, all decided the same way with strong agreement. Free. " +
+    "To act on a settled case and have it recorded and billed as a decision, call ask_humans with use_precedent instead.",
+  inputSchema: {
+    question: z.string().min(3).max(2000).describe("The decision, worded as you would ask it"),
+    context: z.string().max(8000).optional().describe("The material to judge, as plain text"),
+    options: z.array(z.string().min(1).max(200)).min(2).max(8).optional().describe("The possible answers; a suggestion needs past cases with the same options"),
+    category: z.string().max(80).optional().describe("Only cases with this category"),
+    app: z.string().max(40).optional().describe("Only this app. Default: PLURES_APP, then all apps"),
+    limit: z.number().int().min(1).max(20).optional().describe("How many past decisions to return. Default 5"),
+  },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, async (p) => {
+  if (!KEY) return noKey();
+  const app = p.app ?? process.env.PLURES_APP;
+  try {
+    const r = await api("POST", "/api/v1/precedents", { ...p, ...(app ? { app } : {}) }) as { considered: number; mode: string;
+      suggestion: { label: string | null; answer: string; support: number; min_agreement: number } | null;
+      data: { task_id: string; question: string; label: string | null; answer: string | null; agreement: number | null; similarity: number; decided_at: string }[] };
+    const lines = r.data.map((d) => `- ${Math.round(d.similarity * 100)}% similar, ${d.decided_at.slice(0, 10)}: "${d.question}" was decided ${d.label ?? d.answer ?? "with no answer"}${d.agreement != null ? ` (${Math.round(d.agreement * 100)}% agreed)` : ""}. Task ${d.task_id}.`);
+    const head = r.suggestion
+      ? `Settled: people decided ${r.suggestion.support} close cases ${r.suggestion.label ?? r.suggestion.answer}, with at least ${Math.round(r.suggestion.min_agreement * 100)}% agreement. ask_humans with use_precedent will decide it this way for $0.05.`
+      : r.data.length ? "Not settled, so ask people. The closest past decisions:" : `No similar past decisions among ${r.considered} in ${r.mode} mode. Ask people.`;
+    return { content: [{ type: "text" as const, text: [head, ...(r.suggestion && lines.length ? ["The closest past decisions:"] : []), ...lines].join("\n") }], structuredContent: r as unknown as Record<string, unknown> };
   } catch (e) { return fail(e); }
 });
 
