@@ -12,8 +12,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.23.0"
-__all__ = ["Plures", "PluresError", "verify_webhook", "__version__"]
+__version__ = "1.24.0"
+__all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
 class PluresError(Exception):
@@ -23,10 +23,28 @@ class PluresError(Exception):
         self.type = type_
 
 
+class PaymentRequiredError(PluresError):
+    """Preview. A keyless request needs payment with x402 and no payment function was given.
+
+    accepts holds the x402 payment requirements (USDC on Base) for your wallet to pay.
+    """
+
+    def __init__(self, message, accepts, x402_version=1):
+        super().__init__(message, 402, "payment_required")
+        self.accepts = accepts
+        self.x402_version = x402_version
+
+
 class Plures:
-    def __init__(self, api_key=None, base_url=None, timeout=30, app=None):
+    def __init__(self, api_key=None, base_url=None, timeout=30, app=None, payment=None):
+        """payment (preview): a function that takes the x402 payment requirements and
+        returns the base64 X-PAYMENT header your wallet signs. With it you can pay per
+        decision in USDC instead of using an API key; available when x402 is enabled on
+        the server."""
         api_key = api_key or os.environ.get("PLURES_API_KEY")
-        if not api_key:
+        self.payment = payment
+        self._receipts = {}
+        if not api_key and not payment:
             raise ValueError("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join")
         base_url = base_url or os.environ.get("PLURES_BASE_URL") or "https://plures.si"
         self.api_key = api_key
@@ -37,10 +55,12 @@ class Plures:
 
     def _req(self, method, path, body=None, headers=None):
         data = json.dumps(body).encode() if body is not None else None
-        h = {"authorization": "Bearer " + self.api_key, "user-agent": "plures-python/" + __version__}
+        h = {"user-agent": "plures-python/" + __version__}
+        if self.api_key:
+            h["authorization"] = "Bearer " + self.api_key
         if data is not None:
             h["content-type"] = "application/json"
-        if self.app:
+        if self.app and self.api_key:
             h["plures-app"] = self.app
         h.update(headers or {})
         for attempt in range(3):
@@ -53,9 +73,12 @@ class Plures:
                     time.sleep(0.5 * 2 ** attempt)
                     continue
                 try:
-                    err = json.loads(e.read()).get("error", {})
+                    payload = json.loads(e.read())
                 except Exception:
-                    err = {}
+                    payload = {}
+                if e.code == 402 and isinstance(payload.get("accepts"), list):
+                    raise PaymentRequiredError(payload.get("error") or "Payment required", payload["accepts"], payload.get("x402Version", 1))
+                err = payload.get("error", {}) if isinstance(payload.get("error"), dict) else {}
                 raise PluresError(err.get("message", "HTTP %d" % e.code), e.code, err.get("type", "api_error"))
 
     def create_task(self, question, options, idempotency_key=None, **fields):
@@ -70,13 +93,27 @@ class Plures:
         majority decides), team_unanimous and app (which of your apps, like "support-agent";
         defaults to the client's app). The result's decided_by is "verifiers" or
         "team"; result["team"] has how your team voted.
+
+        Preview: with no API key and a payment function (x402 enabled on the server), a
+        402 is paid in USDC and the request sent once more; the task then has a receipt.
         """
         body = dict(fields, question=question, options=options)
-        headers = {"idempotency-key": idempotency_key} if idempotency_key else None
-        return self._req("POST", "/api/v1/tasks", body, headers)
+        headers = {"idempotency-key": idempotency_key} if idempotency_key else {}
+        try:
+            return self._req("POST", "/api/v1/tasks", body, headers)
+        except PaymentRequiredError as e:
+            if self.api_key or not self.payment:
+                raise
+            task = self._req("POST", "/api/v1/tasks", body, dict(headers, **{"x-payment": self.payment(e.accepts)}))
+            if task.get("receipt"):
+                self._receipts[task["id"]] = task["receipt"]
+            return task
 
-    def get_task(self, task_id):
-        return self._req("GET", "/api/v1/tasks/" + urllib.parse.quote(task_id))
+    def get_task(self, task_id, receipt=None):
+        """receipt (preview): read a task paid with x402 without an API key. Remembered after create_task."""
+        receipt = receipt or self._receipts.get(task_id)
+        headers = {"x-payment-receipt": receipt} if receipt and not self.api_key else None
+        return self._req("GET", "/api/v1/tasks/" + urllib.parse.quote(task_id), None, headers)
 
     def list_tasks(self, status=None, limit=None, starting_after=None, app=None):
         q = {k: v for k, v in {"status": status, "limit": limit, "starting_after": starting_after, "app": app}.items() if v is not None}
