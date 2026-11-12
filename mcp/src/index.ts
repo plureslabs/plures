@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.6.0";
+const VERSION = "1.7.0";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -26,6 +26,9 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "set route to team for those, and for anything confidential, a policy call or regulated, so it goes straight to the developer's team instead of verified people. " +
     "For routine calls the developer's people have decided many times before, set use_precedent on ask_humans: when the case is settled in their judgment graph it is decided by precedent for $0.05, otherwise it goes to people as usual. " +
     "find_precedents shows how similar cases were decided, for free. " +
+    "Use ask_judgment when there's no right answer to check, only what people think: which of two replies, designs or model answers is better, whether a customer would accept something, how well work meets a brief, whether a design, video or generated image has a flaw. " +
+    "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
+    "Sign offs (ask_judgment with format signoff) are coming soon: live keys get an error for now. " +
     "When the user asks to map their app or agent for Plures, call get_mapping_guide, read the code the way it says, then call submit_agent_map. " +
     "Never put source code, secrets or customer data in a map.",
 });
@@ -47,7 +50,31 @@ type TaskPlus = Task & {
   result: (NonNullable<Task["result"]> & { team?: { votes: Record<string, number>; agreement: number; voters: { lead: boolean }[]; decided_by_lead: boolean } }) | null;
 };
 
+type Judged = { kind?: string; format?: string; result: { contested?: boolean; mean?: number; spread?: number; reasons?: { answer: string; reason: string }[];
+  signoff?: { decision: string; signer: string; tier: string; presence_confirmed_at: string | null; reason: string | null } } | null };
+
+// A judgment task: the panel's spread of views, a rating's average, reasons, or who signed off.
+const describeJudgment = (task: Task) => {
+  const t = task as unknown as TaskPlus & Judged;
+  const label = (id: string | null) => t.options.find((o) => o.id === id)?.label ?? id;
+  const r = t.result;
+  if (t.status === "pending") return `Still waiting for ${t.format === "signoff" ? "the sign off" : "the panel"}. Task ${t.id}. Call get_human_answer with this task_id later.`;
+  if (t.status === "canceled") return `Task ${t.id} was canceled.`;
+  if (t.status === "expired" || !r) return `Task ${t.id} expired before ${t.format === "signoff" ? "anyone signed off. Don't take the action." : "the panel finished. Treat it as no view yet."}`;
+  if (r.signoff) {
+    const s = r.signoff;
+    return `${s.decision === "approve" ? "Approved" : "Rejected"} by a verified person (${s.tier} tier, signer ${s.signer}), confirmed with a fresh presence check${s.presence_confirmed_at ? ` at ${s.presence_confirmed_at}` : ""}. Their reason: "${s.reason ?? ""}". ${s.decision === "approve" ? "You may take the action." : "Don't take the action."} Task ${t.id}.`;
+  }
+  const votes = Object.entries(r.votes).map(([k, v]) => `${label(k)}: ${v}`).join(", ");
+  const head = r.answer === null ? `The panel tied (${votes}).` : `Most of the panel chose ${label(r.answer)}: ${Math.round(r.agreement * r.answers)} of ${r.answers}. Votes: ${votes}.`;
+  const rate = r.mean != null ? ` Average rating ${r.mean} of 5, spread ${r.spread}.` : "";
+  const split = r.contested ? " Contested: people genuinely split, so this is a close call. Weigh the reasons rather than treating the top answer as settled." : " Clear view.";
+  const why = r.reasons?.length ? `\nReasons people gave:\n${r.reasons.map((x) => `- (${label(x.answer)}) ${x.reason}`).join("\n")}` : "";
+  return `${head}${rate}${split} Task ${t.id}.${why}`;
+};
+
 const describe = (task: Task) => {
+  if ((task as unknown as Judged).kind === "judgment") return describeJudgment(task);
   const t = task as TaskPlus;
   const label = (id: string | null) => t.options.find((o) => o.id === id)?.label ?? id;
   if (t.status === "pending" && t.escalation?.reason === "team_only")
@@ -77,7 +104,8 @@ const describe = (task: Task) => {
 
 const out = (t: Task) => ({
   content: [{ type: "text" as const, text: fmt(t) }],
-  structuredContent: { task_id: t.id, status: t.status, mode: t.mode, decided_by: t.result?.decided_by ?? null, with_team: !!t.escalation && t.status === "pending", route: (t as TaskPlus).route ?? "verifiers", answer: t.result?.answer ?? null, label: t.result?.label ?? null, agreement: t.result?.agreement ?? null, answers: t.result?.answers ?? 0, votes: t.result?.votes ?? {} },
+  structuredContent: { task_id: t.id, status: t.status, mode: t.mode, decided_by: t.result?.decided_by ?? null, with_team: !!t.escalation && t.status === "pending", route: (t as TaskPlus).route ?? "verifiers", answer: t.result?.answer ?? null, label: t.result?.label ?? null, agreement: t.result?.agreement ?? null, answers: t.result?.answers ?? 0, votes: t.result?.votes ?? {},
+    ...((t as unknown as Judged).kind === "judgment" ? { kind: "judgment", contested: (t as unknown as Judged).result?.contested ?? null, mean: (t as unknown as Judged).result?.mean ?? null, reasons: (t as unknown as Judged).result?.reasons ?? [], signoff: (t as unknown as Judged).result?.signoff ?? null } : {}) },
 });
 
 const fail = (e: unknown) => ({
@@ -109,7 +137,10 @@ const progressFor = (extra: { _meta?: { progressToken?: string | number }; sendN
   return (n: number) => extra.sendNotification({ method: "notifications/progress", params: { progressToken: token, progress: n, total, message: "Waiting for verified people to answer" } });
 };
 
-const result = { task_id: z.string(), status: z.string(), mode: z.string(), route: z.string(), decided_by: z.string().nullable(), with_team: z.boolean(), answer: z.string().nullable(), label: z.string().nullable(), agreement: z.number().nullable(), answers: z.number(), votes: z.record(z.number()) };
+const result = { task_id: z.string(), status: z.string(), mode: z.string(), route: z.string(), decided_by: z.string().nullable(), with_team: z.boolean(), answer: z.string().nullable(), label: z.string().nullable(), agreement: z.number().nullable(), answers: z.number(), votes: z.record(z.number()),
+  kind: z.string().optional(), contested: z.boolean().nullable().optional(), mean: z.number().nullable().optional(),
+  reasons: z.array(z.object({ answer: z.string(), reason: z.string() })).optional(),
+  signoff: z.object({ decision: z.string(), signer: z.string(), tier: z.string(), presence_confirmed_at: z.string().nullable(), reason: z.string().nullable() }).passthrough().nullable().optional() };
 
 server.registerTool("ask_humans", {
   title: "Ask verified humans",
@@ -146,6 +177,46 @@ server.registerTool("ask_humans", {
     const wait = wait_seconds ?? 45;
     const app = params.app ?? process.env.PLURES_APP;
     const created = await plures.tasks.create({ ...params, ...(app ? { app } : {}), metadata: { source: "mcp" } } as Parameters<typeof plures.tasks.create>[0]);
+    const t = created.status === "pending" && wait > 0 ? await settle(created.id, wait, progressFor(extra, Math.ceil(wait / 3))) : created;
+    return out(t);
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("ask_judgment", {
+  title: "Ask people for their judgment",
+  description:
+    "Ask a panel of ID verified people for their honest view when there's no right answer to check: which of two replies, designs, headlines or model answers is better, " +
+    "whether a customer would accept a reply or decision, how well something meets a brief (1 to 5), or whether a design, video or generated image has a flaw. " +
+    "You get the spread of views, a contested flag when people genuinely split, and a sample of one line reasons. " +
+    "format signoff (coming soon; test keys now) asks one top rated verified person to approve or reject an action after a fresh Face ID or Touch ID check, with a written reason: use it before an action someone must be accountable for. " +
+    "Live keys use prepaid credit at $0.20 per answer (a panel of 5 is $1.00) or $1.00 per sign off; test keys are free and simulated.",
+  inputSchema: {
+    question: z.string().min(3).max(1000).describe("The question, e.g. \"Which reply would you rather receive?\""),
+    format: z.enum(["accept", "compare", "rate", "flaws", "signoff", "custom"]).optional().describe("accept (default): yes, yes with changes, no. compare: A or B (send a and b). rate: 1 to 5. flaws: looks right or has a flaw. signoff: one Trusted person approves or rejects. custom: send options"),
+    context: z.string().max(20000).optional().describe("What people judge, or the shared setup for a comparison"),
+    a: z.string().max(8000).optional().describe("compare: version A as text"),
+    b: z.string().max(8000).optional().describe("compare: version B as text"),
+    a_image_url: z.string().url().optional().describe("compare: version A as an https image"),
+    b_image_url: z.string().url().optional().describe("compare: version B as an https image"),
+    image_url: z.string().url().optional().describe("An https image to judge, like a design or a generated image"),
+    rubric: z.string().max(2000).optional().describe("What good looks like, in the developer's words, e.g. \"Warm and clear, never pushy\""),
+    options: z.array(z.string().min(1).max(200)).min(2).max(8).optional().describe("custom only: 2 to 8 answers"),
+    reasons: z.enum(["none", "sample", "all"]).optional().describe("Whether people add a one line reason. Default sample (about one in four); sign offs always do"),
+    verifiers: z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(7), z.literal(9)]).optional().describe("Panel size. Default 5. A sign off is always 1"),
+    app: z.string().max(40).optional().describe("Which of the developer's apps this is for. Default: PLURES_APP, then the default app"),
+    wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe(`How long to wait before returning a task_id to check later. Default 45, up to ${MAX_WAIT}`),
+  },
+  outputSchema: result,
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+}, async ({ wait_seconds, a, b, a_image_url, b_image_url, format, ...params }, extra) => {
+  if (!plures) return noKey();
+  try {
+    const wait = wait_seconds ?? 45;
+    const app = params.app ?? process.env.PLURES_APP;
+    const side = (text?: string, image_url?: string) => (image_url ? { ...(text ? { text } : {}), image_url } : text);
+    const compare = format === "compare" ? { a: side(a, a_image_url), b: side(b, b_image_url) } : undefined;
+    const created = await plures.tasks.create({ ...params, kind: "judgment", ...(format ? { format } : {}), ...(compare ? { compare } : {}), ...(app ? { app } : {}),
+      ...(format === "signoff" ? { verifiers: undefined } : {}), metadata: { source: "mcp" } } as unknown as Parameters<typeof plures.tasks.create>[0]);
     const t = created.status === "pending" && wait > 0 ? await settle(created.id, wait, progressFor(extra, Math.ceil(wait / 3))) : created;
     return out(t);
   } catch (e) { return fail(e); }

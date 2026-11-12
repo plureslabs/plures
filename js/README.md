@@ -27,6 +27,24 @@ console.log(task.result?.answer, task.result?.agreement);
 
 Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys complete at once with the first option (or `metadata.test_answer`) and never reach real people. Set `metadata.test_outcome` to `split`, `tie`, `expired` or `slow` to test the cases you route to your own team.
 
+## Judgment: no fixed right answer
+
+Some calls have no answer key: which reply sounds right for your brand, which design feels more premium, whether a customer would accept a decision. A panel gives its honest views and you get the spread back. A genuine split comes back as `contested: true`.
+
+```ts
+const t = await plures.judge({
+  format: "compare", // or "accept" (default), "rate", "flaws", "custom"
+  question: "Which reply would you rather receive?",
+  rubric: "Warm and clear, never pushy.",
+  compare: { a: replyA, b: replyB }, // text, or { text, image_url, video_url }
+});
+console.log(t.result?.answer, t.result?.contested, t.result?.reasons);
+
+// Coming soon (test keys now): one top rated verified person approves or rejects after a fresh Face ID or Touch ID check
+const s = await plures.signoff({ question: "Approve this $2,400 refund?", context });
+console.log(s.result?.signoff); // { decision, signer, tier, presence_confirmed_at, reason, ... }
+```
+
 ## Production: webhooks
 
 ```ts
@@ -82,6 +100,8 @@ Without a `payment` function, a keyless request throws `PaymentRequiredError` wi
 - `plures.balance()`: your prepaid credit for live tasks, in cents. Live tasks cost $0.20 per answer (more for clips); a task that could cost more than your available credit throws a `PluresError` with `type` `insufficient_credits` (status 402).
 - `plures.tasks.waitFor(id, { timeoutMs?, intervalMs? })`: poll until settled
 - `plures.verify(params, { timeoutMs?, idempotencyKey? })`: create and wait
+- `plures.judge(params, opts?)`: a judgment task (`kind: "judgment"`), created and waited for. `format` is `accept` (default), `compare`, `rate`, `flaws` or `custom`; add `rubric`, `compare: { a, b }` and `reasons` (`none`, `sample`, `all`)
+- `plures.signoff(params, opts?)` (coming soon; test keys now): one top rated person approves or rejects with a reason after a fresh presence check ($1.00 live); `result.signoff` says who signed
 - `Plures.verifyWebhook(rawBody, signatureHeader, secret)`: check a webhook and return the event
 
 Errors throw `PluresError` with `status` and `type`. Server errors are retried twice.

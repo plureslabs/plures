@@ -42,6 +42,11 @@ Set `route: "team"` to send a decision straight to your own team instead of veri
 - `use_precedent`: look in your judgment graph first. When people already settled cases like this one, it's decided by precedent at once for $0.05 live; one in ten still goes to people as an audit
 - `wait_seconds`: how long to wait for the answer, 0 to 240 (default 45). If people haven't answered by then, the tool returns a `task_id` to check later.
 
+**`ask_judgment`**: ask a panel for their honest view when there's no right answer to check. You get the spread of views, `contested: true` when people genuinely split, and a sample of one line reasons.
+- `question` (required)
+- `format`: `accept` (default: yes, yes with changes, no), `compare` (send `a` and `b`, or `a_image_url` and `b_image_url`), `rate` (1 to 5, with the average and spread), `flaws` (looks right or has a flaw), `signoff` (coming soon, test keys now: one top rated verified person approves or rejects after a fresh Face ID or Touch ID check, with a reason; $1.00 live), or `custom` (send `options`)
+- `context`, `image_url`, `rubric` (what good looks like), `reasons` (`none`, `sample` or `all`), `verifiers` (default 5), `app`, `wait_seconds`
+
 **`find_precedents`**: how people decided similar cases before, closest first, with a suggestion when the case is settled. Free.
 
 **`get_human_answer`**: check a task by `task_id`, optionally waiting.

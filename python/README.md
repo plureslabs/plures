@@ -30,6 +30,24 @@ else:
 
 Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys complete at once with the first option (or `metadata["test_answer"]`) and never reach real people. Set `metadata["test_outcome"]` to `split`, `tie`, `expired` or `slow` to test the cases you route to your own team.
 
+## Judgment: no fixed right answer
+
+Some calls have no answer key: which reply sounds right for your brand, which design feels more premium, whether a customer would accept a decision. A panel gives its honest views and you get the spread back. A genuine split comes back as `contested: True`.
+
+```python
+t = plures.judge(
+    "Which reply would you rather receive?",
+    format="compare",  # or "accept" (default), "rate", "flaws", "custom"
+    rubric="Warm and clear, never pushy.",
+    compare={"a": reply_a, "b": reply_b},  # text, or {"text", "image_url", "video_url"}
+)
+print(t["result"]["answer"], t["result"]["contested"], t["result"].get("reasons"))
+
+# Coming soon (test keys now): one top rated verified person approves or rejects after a fresh Face ID or Touch ID check
+s = plures.signoff("Approve this $2,400 refund?", context=context)
+print(s["result"]["signoff"])
+```
+
 ## Production: webhooks
 
 ```python
@@ -75,6 +93,8 @@ Without a `payment` function, a keyless request raises `PaymentRequiredError` wi
 - `balance()`: your prepaid credit for live tasks, in cents. Live tasks cost $0.20 per answer (more for clips); a task that could cost more than your available credit raises `PluresError` with `type` `insufficient_credits` (status 402).
 - `wait_for(id, timeout=600, interval=3)`: poll until settled
 - `verify(question, options, timeout=600, **fields)`: create and wait
+- `judge(question, format="accept", **fields)`: a judgment task, created and waited for. format is accept, compare, rate, flaws or custom; add rubric, compare={"a", "b"} and reasons
+- `signoff(question, **fields)` (coming soon; test keys now): one top rated person approves or rejects with a reason after a fresh presence check ($1.00 live); result["signoff"] says who signed
 - `verify_webhook(raw_body, signature_header, secret)`: check a webhook and return the event
 
 Errors raise `PluresError` with `.status` and `.type`. Server errors are retried twice.
