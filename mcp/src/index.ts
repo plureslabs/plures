@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.7.0";
+const VERSION = "1.7.1";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -198,6 +198,11 @@ server.registerTool("ask_judgment", {
     b: z.string().max(8000).optional().describe("compare: version B as text"),
     a_image_url: z.string().url().optional().describe("compare: version A as an https image"),
     b_image_url: z.string().url().optional().describe("compare: version B as an https image"),
+    a_clip_url: z.string().url().optional().describe("compare: version A as an https video (MP4) or recording, played through before answering. Needs a_seconds"),
+    b_clip_url: z.string().url().optional().describe("compare: version B as an https video (MP4) or recording. Needs b_seconds"),
+    a_seconds: z.number().int().min(1).max(180).optional().describe("Length of a_clip_url in seconds"),
+    b_seconds: z.number().int().min(1).max(180).optional().describe("Length of b_clip_url in seconds"),
+    clip_kind: z.enum(["video", "audio"]).optional().describe("Whether a_clip_url and b_clip_url are video (default) or audio"),
     image_url: z.string().url().optional().describe("An https image to judge, like a design or a generated image"),
     rubric: z.string().max(2000).optional().describe("What good looks like, in the developer's words, e.g. \"Warm and clear, never pushy\""),
     options: z.array(z.string().min(1).max(200)).min(2).max(8).optional().describe("custom only: 2 to 8 answers"),
@@ -208,13 +213,15 @@ server.registerTool("ask_judgment", {
   },
   outputSchema: result,
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-}, async ({ wait_seconds, a, b, a_image_url, b_image_url, format, ...params }, extra) => {
+}, async ({ wait_seconds, a, b, a_image_url, b_image_url, a_clip_url, b_clip_url, a_seconds, b_seconds, clip_kind, format, ...params }, extra) => {
   if (!plures) return noKey();
   try {
     const wait = wait_seconds ?? 45;
     const app = params.app ?? process.env.PLURES_APP;
-    const side = (text?: string, image_url?: string) => (image_url ? { ...(text ? { text } : {}), image_url } : text);
-    const compare = format === "compare" ? { a: side(a, a_image_url), b: side(b, b_image_url) } : undefined;
+    const key = clip_kind === "audio" ? "audio_url" : "video_url";
+    const side = (text?: string, image_url?: string, clip?: string, seconds?: number) => (image_url || clip
+      ? { ...(text ? { text } : {}), ...(image_url ? { image_url } : {}), ...(clip ? { [key]: clip, media_seconds: seconds } : {}) } : text);
+    const compare = format === "compare" ? { a: side(a, a_image_url, a_clip_url, a_seconds), b: side(b, b_image_url, b_clip_url, b_seconds) } : undefined;
     const created = await plures.tasks.create({ ...params, kind: "judgment", ...(format ? { format } : {}), ...(compare ? { compare } : {}), ...(app ? { app } : {}),
       ...(format === "signoff" ? { verifiers: undefined } : {}), metadata: { source: "mcp" } } as unknown as Parameters<typeof plures.tasks.create>[0]);
     const t = created.status === "pending" && wait > 0 ? await settle(created.id, wait, progressFor(extra, Math.ceil(wait / 3))) : created;
