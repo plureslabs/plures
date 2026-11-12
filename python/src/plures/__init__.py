@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.26.1"
+__version__ = "1.27.0"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -122,6 +122,19 @@ class Plures:
             if task.get("receipt"):
                 self._receipts[task["id"]] = task["receipt"]
             return task
+
+    def create_audit(self, rows=None, kind="check", about=None, question=None, csv=None):
+        """The free audit: up to 50 decisions your agent already made, checked by ID verified
+        people. Once per account. rows is a list of {"input": what the agent saw, "decision":
+        what it did}, or pass csv with columns input and decision. kind "check" asks whether each
+        call was right; "judgment" asks whether a customer would be happy with it. A person at
+        Plures reviews it first, so status starts as in_review."""
+        body = {k: v for k, v in {"rows": rows, "csv": csv, "kind": kind, "about": about, "question": question}.items() if v is not None}
+        return self._req("POST", "/api/v1/audits", body)
+
+    def get_audit(self, audit_id=None):
+        """Your audit, with every row's verdict once people answer (the account's audit when no id)."""
+        return self._req("GET", "/api/v1/audits" + ("/" + urllib.parse.quote(audit_id) if audit_id else ""))
 
     def find_precedents(self, question, context=None, category=None, app=None, options=None, limit=None):
         """Searches your judgment graph: the closest past decisions people made for you on cases

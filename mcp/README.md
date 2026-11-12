@@ -47,6 +47,10 @@ Set `route: "team"` to send a decision straight to your own team instead of veri
 - `format`: `accept` (default: yes, yes with changes, no), `compare` (send `a` and `b`, or `a_image_url` and `b_image_url`, or `a_clip_url` and `b_clip_url` with `a_seconds`, `b_seconds` and `clip_kind`), `rate` (1 to 5, with the average and spread), `flaws` (looks right or has a flaw), `signoff` (coming soon, test keys now: one top rated verified person approves or rejects after a fresh Face ID or Touch ID check, with a reason; $1.00 live), or `custom` (send `options`)
 - `context`, `image_url`, `rubric` (what good looks like), `reasons` (`none`, `sample` or `all`), `verifiers` (default 5), `app`, `wait_seconds`
 
+**`audit_my_agent`**: the free audit. Send up to 50 decisions the agent already made (`rows` of `input` and `decision`, or `csv`), with `kind` `check` (was each call right) or `judgment` (would a customer be happy with it), and `about`. Once per account. A person at Plures reviews it first, then ID verified people judge each decision.
+
+**`get_audit_report`**: where the audit is and, once people answer, the decisions they disagreed with. Optional `audit_id`.
+
 **`find_precedents`**: how people decided similar cases before, closest first, with a suggestion when the case is settled. Free.
 
 **`get_human_answer`**: check a task by `task_id`, optionally waiting.

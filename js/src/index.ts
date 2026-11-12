@@ -119,6 +119,15 @@ export type JudgmentFormat = "accept" | "compare" | "rate" | "flaws" | "signoff"
 /** A side with video_url or audio_url needs media_seconds; both clips play through before answering. */
 export type CompareSide = string | { text?: string; image_url?: string; video_url?: string; audio_url?: string; media_seconds?: number };
 export type Signoff = { decision: "approve" | "reject"; signer: string; tier: string; identity_verified: true; presence_confirmed_at: string | null; signed_at: string; reason: string | null };
+export type AuditVerdict = "right" | "wrong" | "unclear" | "split" | "waiting";
+/** The free audit. For judgment audits, right reads as happy with it, wrong as not happy, unclear as needs changes. */
+export type Audit = {
+  object: "audit"; id: string; kind: "check" | "judgment"; status: "in_review" | "running" | "ready" | "declined";
+  question: string; rows: number; answers_per_row: number; dashboard_url: string;
+  summary: { total: number; graded: number; right: number; wrong: number; unclear: number; split: number; waiting: number; people: number } | null;
+  data: { n: number; input: string; decision: string; category: string | null; verdict: AuditVerdict; label: string; agreement: number | null; votes: Record<string, number> }[];
+  removed?: Record<string, number>; dropped?: number;
+};
 export type CreateTask = {
   question: string;
   /** Required for checks and custom judgments. Other judgment formats bring their own options. */
@@ -235,7 +244,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.26.1";
+export const VERSION = "1.27.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -507,6 +516,18 @@ export class Plures {
    * returns the closest past decisions and, when the case is settled, a suggestion. Free. To have
    * a task decided by precedent when it's settled, send it with use_precedent: true instead.
    */
+  /**
+   * The free audit: up to 50 decisions your agent already made, checked by ID verified people.
+   * Once per account. kind "check" (default) asks whether each call was right; "judgment" asks
+   * whether a customer would be happy with it. A person at Plures reviews it first, so status
+   * starts as in_review; get() returns every row's verdict once people answer.
+   */
+  audits = {
+    create: (p: { rows?: { input: string; decision: string }[]; csv?: string; kind?: "check" | "judgment"; about?: string; question?: string }) =>
+      this.req<Audit>("POST", "/api/v1/audits", p),
+    get: (id?: string) => this.req<Audit>("GET", id ? `/api/v1/audits/${encodeURIComponent(id)}` : "/api/v1/audits"),
+  };
+
   precedents = {
     search: (p: { question: string; context?: string; category?: string; app?: string; options?: (string | Option)[]; limit?: number }) =>
       this.req<PrecedentSearch>("POST", "/api/v1/precedents", p),
