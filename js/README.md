@@ -40,7 +40,7 @@ const t = await plures.judge({
 });
 console.log(t.result?.answer, t.result?.contested, t.result?.reasons);
 
-// One verified, Trusted person approves or rejects after a fresh Face ID or Touch ID check
+// Coming soon (test keys now): one top rated verified person approves or rejects after a fresh Face ID or Touch ID check
 const s = await plures.signoff({ question: "Approve this $2,400 refund?", context });
 console.log(s.result?.signoff); // { decision, signer, tier, presence_confirmed_at, reason, ... }
 ```
@@ -101,7 +101,7 @@ Without a `payment` function, a keyless request throws `PaymentRequiredError` wi
 - `plures.tasks.waitFor(id, { timeoutMs?, intervalMs? })`: poll until settled
 - `plures.verify(params, { timeoutMs?, idempotencyKey? })`: create and wait
 - `plures.judge(params, opts?)`: a judgment task (`kind: "judgment"`), created and waited for. `format` is `accept` (default), `compare`, `rate`, `flaws` or `custom`; add `rubric`, `compare: { a, b }` and `reasons` (`none`, `sample`, `all`)
-- `plures.signoff(params, opts?)`: one Trusted person approves or rejects with a reason after a fresh presence check ($1.00 live); `result.signoff` says who signed
+- `plures.signoff(params, opts?)` (coming soon; test keys now): one top rated person approves or rejects with a reason after a fresh presence check ($1.00 live); `result.signoff` says who signed
 - `Plures.verifyWebhook(rawBody, signatureHeader, secret)`: check a webhook and return the event
 
 Errors throw `PluresError` with `status` and `type`. Server errors are retried twice.

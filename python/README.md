@@ -43,7 +43,7 @@ t = plures.judge(
 )
 print(t["result"]["answer"], t["result"]["contested"], t["result"].get("reasons"))
 
-# One verified, Trusted person approves or rejects after a fresh Face ID or Touch ID check
+# Coming soon (test keys now): one top rated verified person approves or rejects after a fresh Face ID or Touch ID check
 s = plures.signoff("Approve this $2,400 refund?", context=context)
 print(s["result"]["signoff"])
 ```
@@ -94,7 +94,7 @@ Without a `payment` function, a keyless request raises `PaymentRequiredError` wi
 - `wait_for(id, timeout=600, interval=3)`: poll until settled
 - `verify(question, options, timeout=600, **fields)`: create and wait
 - `judge(question, format="accept", **fields)`: a judgment task, created and waited for. format is accept, compare, rate, flaws or custom; add rubric, compare={"a", "b"} and reasons
-- `signoff(question, **fields)`: one Trusted person approves or rejects with a reason after a fresh presence check ($1.00 live); result["signoff"] says who signed
+- `signoff(question, **fields)` (coming soon; test keys now): one top rated person approves or rejects with a reason after a fresh presence check ($1.00 live); result["signoff"] says who signed
 - `verify_webhook(raw_body, signature_header, secret)`: check a webhook and return the event
 
 Errors raise `PluresError` with `.status` and `.type`. Server errors are retried twice.

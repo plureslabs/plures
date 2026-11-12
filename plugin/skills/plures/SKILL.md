@@ -83,7 +83,7 @@ When there's no answer key, only what people think, send `kind: "judgment"` (SDK
 - `format: "compare"` with `compare: { a, b }` (text or `{ text, image_url, video_url }`): replies, headlines, designs, thumbnails, model answers. Options `a`, `b`, `same`.
 - `format: "rate"`: 1 to 5 against `rubric`, what good looks like in the developer's words.
 - `format: "flaws"`: does this design, video or generated image have a flaw? Ask `reasons: "all"` to hear what.
-- `format: "signoff"` (SDK `plures.signoff(...)`): one verified person at Trusted tier or above approves or rejects after a fresh presence check and says why. `result.signoff` has `decision`, `signer`, `tier`, `presence_confirmed_at` and `reason`. Act only on `approve`. $1.00 live.
+- `format: "signoff"` (SDK `plures.signoff(...)`), coming soon (test keys now; live keys get an error): one top rated verified person approves or rejects after a fresh presence check and says why. `result.signoff` has `decision`, `signer`, `tier`, `presence_confirmed_at` and `reason`. Act only on `approve`. $1.00 live.
 - `format: "custom"` with your own `options`.
 
 Not with `max_verifiers`, `route: "team"` or `use_precedent`. A contested judgment isn't sent to the team unless `escalate: true`.

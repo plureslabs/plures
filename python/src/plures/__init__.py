@@ -423,7 +423,7 @@ class Plures:
                            kind="judgment", format=format, **fields)
 
     def signoff(self, question, timeout=600, idempotency_key=None, **fields):
-        """One verified person at Trusted tier or above approves or rejects, after a fresh
+        """Coming soon (test keys now; live keys get an error). One top rated verified person approves or rejects, after a fresh
         Face ID, fingerprint or Touch ID check, and says why. result["signoff"] says who signed."""
         return self.verify(question, None, timeout=timeout, idempotency_key=idempotency_key,
                            kind="judgment", format="signoff", **fields)

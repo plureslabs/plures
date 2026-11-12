@@ -28,7 +28,7 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "find_precedents shows how similar cases were decided, for free. " +
     "Use ask_judgment when there's no right answer to check, only what people think: which of two replies, designs or model answers is better, whether a customer would accept something, how well work meets a brief, whether a design, video or generated image has a flaw. " +
     "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
-    "Use ask_judgment with format signoff when a named, verified person must approve an action before you take it; act only on decision approve. " +
+    "Sign offs (ask_judgment with format signoff) are coming soon: live keys get an error for now. " +
     "When the user asks to map their app or agent for Plures, call get_mapping_guide, read the code the way it says, then call submit_agent_map. " +
     "Never put source code, secrets or customer data in a map.",
 });
@@ -188,7 +188,7 @@ server.registerTool("ask_judgment", {
     "Ask a panel of ID verified people for their honest view when there's no right answer to check: which of two replies, designs, headlines or model answers is better, " +
     "whether a customer would accept a reply or decision, how well something meets a brief (1 to 5), or whether a design, video or generated image has a flaw. " +
     "You get the spread of views, a contested flag when people genuinely split, and a sample of one line reasons. " +
-    "format signoff asks one verified person at Trusted tier or above to approve or reject an action after a fresh Face ID or Touch ID check, with a written reason: use it before an action someone must be accountable for. " +
+    "format signoff (coming soon; test keys now) asks one top rated verified person to approve or reject an action after a fresh Face ID or Touch ID check, with a written reason: use it before an action someone must be accountable for. " +
     "Live keys use prepaid credit at $0.20 per answer (a panel of 5 is $1.00) or $1.00 per sign off; test keys are free and simulated.",
   inputSchema: {
     question: z.string().min(3).max(1000).describe("The question, e.g. \"Which reply would you rather receive?\""),
