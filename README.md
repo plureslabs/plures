@@ -61,7 +61,7 @@ In production, pass `webhook_url` instead of waiting, and check each delivery wi
 }
 ```
 
-Your agent gets an `ask_humans` tool. Setup for Claude Desktop, Claude Code, Cursor and VS Code is in [examples/mcp-clients](examples/mcp-clients).
+Your agent gets an `ask_humans` tool for decisions and an `ask_judgment` tool for preferences, ratings and sign offs. Setup for Claude Desktop, Claude Code, Cursor and VS Code is in [examples/mcp-clients](examples/mcp-clients).
 
 ## Teach your coding agent Plures
 

@@ -63,6 +63,14 @@ export type CheckResult = Task & Omit<CheckExtra, "kept_private" | "skipped_beca
 export type TaskStatus = "pending" | "completed" | "expired" | "canceled" | "skipped";
 export type Result = {
   answer: string | null; label: string | null; agreement: number; answers: number; votes: Record<string, number>; tie?: boolean;
+  /** Judgment tasks: true when fewer than 60% chose the top answer, or it tied. A finding, not a failure. */
+  contested?: boolean;
+  /** Judgment format rate: the average score and its standard deviation. */
+  mean?: number; spread?: number;
+  /** Judgment tasks: one line reasons people gave, without names. */
+  reasons?: { answer: string; reason: string }[];
+  /** Sign offs: who signed and how it was confirmed. */
+  signoff?: Signoff;
   /** Who made the final call: verified people, your team, or precedent (settled past decisions, with use_precedent). */
   decided_by?: "verifiers" | "team" | "plures" | "precedent";
   /** The team member who decided, when decided_by is "team". */
@@ -86,7 +94,8 @@ export type Task = {
   sampled?: boolean;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
   audio_url?: string | null; video_url?: string | null; media_seconds?: number | null; sensitive?: boolean;
-  options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null; escalation?: Escalation | null; metadata: Record<string, unknown>;
+  options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null;
+  kind?: "check" | "judgment"; format?: JudgmentFormat; rubric?: string | null; compare?: { a: { text: string | null; image_url: string | null; video_url: string | null }; b: { text: string | null; image_url: string | null; video_url: string | null } } | null; reasons?: "none" | "sample" | "all"; escalation?: Escalation | null; metadata: Record<string, unknown>;
   /** Where it went: verified people first, or straight to your team. */
   route?: Route; category?: string | null;
   /** The named team that decides, or null for your main team. */
@@ -104,9 +113,25 @@ export type Task = {
   ledger?: { seq: number; url: string } | null;
   webhook_url: string | null; created_at: string; completed_at: string | null; expires_at: string;
 };
+/** Judgment tasks: no fixed right answer. See https://plures.si/docs#judgment */
+export type JudgmentFormat = "accept" | "compare" | "rate" | "flaws" | "signoff" | "custom";
+/** One side of a comparison: text, or an object with text, image_url or video_url. */
+export type CompareSide = string | { text?: string; image_url?: string; video_url?: string };
+export type Signoff = { decision: "approve" | "reject"; signer: string; tier: string; identity_verified: true; presence_confirmed_at: string | null; signed_at: string; reason: string | null };
 export type CreateTask = {
   question: string;
-  options: (string | Option)[];
+  /** Required for checks and custom judgments. Other judgment formats bring their own options. */
+  options?: (string | Option)[];
+  /** "judgment" for questions with no fixed right answer: a panel gives its views and a split comes back as contested. Default "check". */
+  kind?: "check" | "judgment";
+  /** Judgment only. accept: yes, changes, no. compare: a, b, same. rate: 1 to 5. flaws: none, flaw. signoff: one Trusted person approves or rejects with a reason. custom: your options. Default accept. */
+  format?: JudgmentFormat;
+  /** Judgment only: what good looks like, in your words. */
+  rubric?: string;
+  /** Judgment format compare: the two versions. */
+  compare?: { a: CompareSide; b: CompareSide };
+  /** Judgment only: whether people add a one line reason. Default "sample"; sign offs always do. */
+  reasons?: "none" | "sample" | "all";
   context?: string;
   image_url?: string;
   /** A recording people play through before answering, up to 3 minutes. Needs media_seconds. */
@@ -209,7 +234,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.25.0";
+export const VERSION = "1.26.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -512,6 +537,23 @@ export class Plures {
   async verify(params: CreateTask, opts: { timeoutMs?: number; idempotencyKey?: string } = {}) {
     const t = await this.tasks.create(params, { idempotencyKey: opts.idempotencyKey });
     return t.status === "pending" ? this.tasks.waitFor(t.id, { timeoutMs: opts.timeoutMs }) : t;
+  }
+
+  /**
+   * Asks a panel for their judgment and waits: no fixed right answer. Defaults to format "accept"
+   * (yes, changes, no). The result has contested, reasons, and mean and spread for "rate".
+   * For an A or B comparison: judge({ format: "compare", question, compare: { a, b } }).
+   */
+  judge(params: Omit<CreateTask, "kind">, opts: { timeoutMs?: number; idempotencyKey?: string } = {}) {
+    return this.verify({ ...params, kind: "judgment" }, opts);
+  }
+
+  /**
+   * One verified person at Trusted tier or above approves or rejects, after a fresh Face ID,
+   * fingerprint or Touch ID check, and says why. Waits for it. result.signoff has who signed.
+   */
+  signoff(params: Omit<CreateTask, "kind" | "format" | "options" | "verifiers">, opts: { timeoutMs?: number; idempotencyKey?: string } = {}) {
+    return this.verify({ ...params, kind: "judgment", format: "signoff" }, opts);
   }
 
   /**

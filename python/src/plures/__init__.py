@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.25.0"
+__version__ = "1.26.0"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -81,8 +81,14 @@ class Plures:
                 err = payload.get("error", {}) if isinstance(payload.get("error"), dict) else {}
                 raise PluresError(err.get("message", "HTTP %d" % e.code), e.code, err.get("type", "api_error"))
 
-    def create_task(self, question, options, idempotency_key=None, **fields):
+    def create_task(self, question, options=None, idempotency_key=None, **fields):
         """Sends a question to verified people.
+
+        options is required for checks and custom judgments. For a judgment task (no fixed
+        right answer) pass kind="judgment" with format ("accept" default, "compare", "rate",
+        "flaws", "signoff" or "custom"), rubric, compare={"a": ..., "b": ...} (each text or
+        {"text", "image_url", "video_url"}) and reasons ("none", "sample" or "all"). The
+        result adds contested, reasons, mean and spread (rate) and signoff (sign offs).
 
         fields: context, image_url, audio_url or video_url with media_seconds (1 to 180), sensitive, instructions, verifiers (odd, 1 to 9), max_verifiers,
         presence_check (default True), webhook_url, metadata, expires_in (seconds),
@@ -103,7 +109,9 @@ class Plures:
         Preview: with no API key and a payment function (x402 enabled on the server), a
         402 is paid in USDC and the request sent once more; the task then has a receipt.
         """
-        body = dict(fields, question=question, options=options)
+        body = dict(fields, question=question)
+        if options is not None:
+            body["options"] = options
         headers = {"idempotency-key": idempotency_key} if idempotency_key else {}
         try:
             return self._req("POST", "/api/v1/tasks", body, headers)
@@ -399,10 +407,26 @@ class Plures:
         return {**final, "check": t.get("check"), "on_timeout": t.get("on_timeout"), "kept_private": t.get("kept_private", []),
                 "skipped_because": t.get("skipped_because"), "answer": answer, "checked": final["status"] != "skipped", "timed_out": timed_out}
 
-    def verify(self, question, options, timeout=600, idempotency_key=None, **fields):
+    def verify(self, question, options=None, timeout=600, idempotency_key=None, **fields):
         """Creates a task and waits for people to answer it."""
         t = self.create_task(question, options, idempotency_key=idempotency_key, **fields)
         return t if t["status"] != "pending" else self.wait_for(t["id"], timeout=timeout)
+
+    def judge(self, question, format="accept", timeout=600, idempotency_key=None, **fields):
+        """Asks a panel for their judgment and waits: no fixed right answer.
+
+        format: "accept" (yes, changes, no), "compare" (pass compare={"a": ..., "b": ...}),
+        "rate" (1 to 5), "flaws" (none, flaw) or "custom" (pass options). Add rubric and
+        reasons. The result has contested, reasons, and mean and spread for "rate".
+        """
+        return self.verify(question, fields.pop("options", None), timeout=timeout, idempotency_key=idempotency_key,
+                           kind="judgment", format=format, **fields)
+
+    def signoff(self, question, timeout=600, idempotency_key=None, **fields):
+        """One verified person at Trusted tier or above approves or rejects, after a fresh
+        Face ID, fingerprint or Touch ID check, and says why. result["signoff"] says who signed."""
+        return self.verify(question, None, timeout=timeout, idempotency_key=idempotency_key,
+                           kind="judgment", format="signoff", **fields)
 
 
 def verify_webhook(raw_body, signature_header, secret, tolerance=300):

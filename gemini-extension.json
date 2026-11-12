@@ -1,6 +1,6 @@
 {
   "name": "plures",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Human in the loop for AI agents: ask ID verified people to check a decision before your agent acts. Adds the Plures skill and the plures-mcp server (ask_humans).",
   "settings": [
     {

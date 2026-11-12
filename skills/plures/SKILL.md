@@ -1,6 +1,6 @@
 ---
 name: plures
-description: Add a human in the loop to an AI agent with Plures. Use when an agent should get a person's judgment before acting (approvals, human review, HITL, escalation, checking an AI answer, tone, moderation, refunds) or when the user mentions Plures, plures.si, ask_humans or verified human review.
+description: Add a human in the loop to an AI agent with Plures. Use when an agent should get a person's judgment before acting (approvals, sign off, human review, HITL, escalation, checking an AI answer, tone, moderation, refunds, A or B preference, design or video feedback) or when the user mentions Plures, plures.si, ask_humans or verified human review.
 license: MIT
 metadata:
   homepage: https://plures.si
@@ -74,6 +74,19 @@ curl https://plures.si/api/v1/tasks \
 ```
 
 The result has `answer` (the option most people chose, or null on a tie or expiry), `agreement` (0 to 1), `answers` and `votes`. A good default: act automatically only at `agreement === 1` and send anything lower to the team. If the developer has added reviewers at https://plures.si/dashboard/team, Plures does that itself: the task stays pending until a reviewer decides and comes back with `decided_by: "team"`.
+
+## Judgment: no fixed right answer
+
+When there's no answer key, only what people think, send `kind: "judgment"` (SDK `plures.judge(...)`, Python `plures.judge(...)`, MCP `ask_judgment`). A panel of 5 by default gives honest views, and the result adds `contested` (people genuinely split: a close call, not an error), a sample of one line `reasons`, and `mean` and `spread` for ratings.
+
+- `format: "accept"` (default): would you send, publish or accept this? Options `yes`, `changes`, `no`.
+- `format: "compare"` with `compare: { a, b }` (text or `{ text, image_url, video_url }`): replies, headlines, designs, thumbnails, model answers. Options `a`, `b`, `same`.
+- `format: "rate"`: 1 to 5 against `rubric`, what good looks like in the developer's words.
+- `format: "flaws"`: does this design, video or generated image have a flaw? Ask `reasons: "all"` to hear what.
+- `format: "signoff"` (SDK `plures.signoff(...)`): one verified person at Trusted tier or above approves or rejects after a fresh presence check and says why. `result.signoff` has `decision`, `signer`, `tier`, `presence_confirmed_at` and `reason`. Act only on `approve`. $1.00 live.
+- `format: "custom"` with your own `options`.
+
+Not with `max_verifiers`, `route: "team"` or `use_precedent`. A contested judgment isn't sent to the team unless `escalate: true`.
 
 ## Precedents: decide settled cases from the judgment graph
 
