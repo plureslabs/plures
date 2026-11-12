@@ -94,6 +94,8 @@ Every decision people make for the developer joins their judgment graph. For rou
 
 To look without deciding, `plures.precedents.search({ question, context, options })` (Python `find_precedents(...)`, MCP `find_precedents`) returns the closest past decisions and a `suggestion` when settled. It's free.
 
+To check an agent before integrating, the free audit sends up to 50 decisions it already made (from logs, a database or fixtures) to people: `plures.audits.create({ rows: [{ input, decision }], kind: "check" | "judgment", about })` (Python `create_audit(...)`, MCP `audit_my_agent`). Once per account, reviewed by a person at Plures first, results in a few days via `plures.audits.get()` (Python `get_audit()`, MCP `get_audit_report`). Leave out names and private details.
+
 ## Writing a good task
 
 - `question`: one decision, answerable from `context` alone by someone with no other knowledge of the app.
