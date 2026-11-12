@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.26.0"
+__version__ = "1.26.1"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -87,7 +87,7 @@ class Plures:
         options is required for checks and custom judgments. For a judgment task (no fixed
         right answer) pass kind="judgment" with format ("accept" default, "compare", "rate",
         "flaws", "signoff" or "custom"), rubric, compare={"a": ..., "b": ...} (each text or
-        {"text", "image_url", "video_url"}) and reasons ("none", "sample" or "all"). The
+        {"text", "image_url", "video_url", "audio_url", "media_seconds"}; a clip needs media_seconds) and reasons ("none", "sample" or "all"). The
         result adds contested, reasons, mean and spread (rate) and signoff (sign offs).
 
         fields: context, image_url, audio_url or video_url with media_seconds (1 to 180), sensitive, instructions, verifiers (odd, 1 to 9), max_verifiers,

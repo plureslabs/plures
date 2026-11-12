@@ -95,7 +95,7 @@ export type Task = {
   question: string; context: string | null; image_url: string | null; instructions: string | null;
   audio_url?: string | null; video_url?: string | null; media_seconds?: number | null; sensitive?: boolean;
   options: Option[]; verifiers: number; presence_check?: boolean; result: Result | null;
-  kind?: "check" | "judgment"; format?: JudgmentFormat; rubric?: string | null; compare?: { a: { text: string | null; image_url: string | null; video_url: string | null }; b: { text: string | null; image_url: string | null; video_url: string | null } } | null; reasons?: "none" | "sample" | "all"; escalation?: Escalation | null; metadata: Record<string, unknown>;
+  kind?: "check" | "judgment"; format?: JudgmentFormat; rubric?: string | null; compare?: { a: { text: string | null; image_url: string | null; video_url: string | null; audio_url?: string | null; media_seconds?: number | null }; b: { text: string | null; image_url: string | null; video_url: string | null; audio_url?: string | null; media_seconds?: number | null } } | null; reasons?: "none" | "sample" | "all"; escalation?: Escalation | null; metadata: Record<string, unknown>;
   /** Where it went: verified people first, or straight to your team. */
   route?: Route; category?: string | null;
   /** The named team that decides, or null for your main team. */
@@ -116,7 +116,8 @@ export type Task = {
 /** Judgment tasks: no fixed right answer. See https://plures.si/docs#judgment */
 export type JudgmentFormat = "accept" | "compare" | "rate" | "flaws" | "signoff" | "custom";
 /** One side of a comparison: text, or an object with text, image_url or video_url. */
-export type CompareSide = string | { text?: string; image_url?: string; video_url?: string };
+/** A side with video_url or audio_url needs media_seconds; both clips play through before answering. */
+export type CompareSide = string | { text?: string; image_url?: string; video_url?: string; audio_url?: string; media_seconds?: number };
 export type Signoff = { decision: "approve" | "reject"; signer: string; tier: string; identity_verified: true; presence_confirmed_at: string | null; signed_at: string; reason: string | null };
 export type CreateTask = {
   question: string;
@@ -234,7 +235,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.26.0";
+export const VERSION = "1.26.1";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
