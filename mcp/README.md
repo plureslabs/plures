@@ -53,6 +53,12 @@ Set `route: "team"` to send a decision straight to your own team instead of veri
 
 **`find_precedents`**: how people decided similar cases before, closest first, with a suggestion when the case is settled. Free.
 
+**`get_taste`**: what the team wants its agents' work to look like: the standing rules in force and recent examples of what they like and don't. Call it before producing work the team will judge. Free.
+
+**`check_against_taste`**: holds a draft (text, a public image link, or both) up against those rules and examples, and says which rules it breaks and why. A check that could not assess the draft is not approval.
+
+**`add_taste_rule`** and **`add_taste_example`**: save a standing rule, or something the team likes or doesn't, when the user says so.
+
 **`get_human_answer`**: check a task by `task_id`, optionally waiting.
 
 **`cancel_human_task`**: cancel a task that no longer matters.

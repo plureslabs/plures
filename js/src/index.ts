@@ -196,6 +196,14 @@ export type Precedent = {
 /** Offered only when several close cases with the same options were all decided the same way with strong agreement. */
 export type PrecedentSuggestion = { answer: string; label: string | null; support: number; min_similarity: number; min_agreement: number; task_ids: string[] };
 export type PrecedentSearch = { object: "precedent_search"; mode: "live" | "test"; considered: number; suggestion: PrecedentSuggestion | null; data: Precedent[] };
+/** A standing rule a team set for its agents' work. source "inferred": drafted by Plures from the team's decisions and approved by a team member. */
+export type TasteRule = { object: "taste_rule"; id: string; text: string; category: string | null; status: "proposed" | "active" | "declined" | "retired"; source: "manual" | "team" | "inferred"; created_at: string; approved_at: string | null };
+/** Something the team likes or doesn't. description and tags are written by Plures shortly after it is added. */
+export type TasteExample = { object: "taste_example"; id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[]; created_at: string };
+/** guidance is the rules as text, ready to add to an agent's instructions. */
+export type Taste = { object: "taste"; category: string | null; rules: TasteRule[]; examples: TasteExample[]; guidance: string };
+/** checked false means nothing was assessed (no rules yet, or the check was unavailable): never treat that as approval. */
+export type TasteCheck = { object: "taste_check"; pass: boolean; checked: boolean; summary: string; rules_considered: number; examples_considered: number; violations: { rule_id: string; rule: string; why: string }[]; suggestions: string[] };
 /** Your main team, named teams and rules by category. */
 export type RoutingRule = { category: string; route: Route; group: string | null; escalate_below: number | null };
 export type Routing = {
@@ -244,7 +252,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.27.0";
+export const VERSION = "1.28.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -531,6 +539,45 @@ export class Plures {
   precedents = {
     search: (p: { question: string; context?: string; category?: string; app?: string; options?: (string | Option)[]; limit?: number }) =>
       this.req<PrecedentSearch>("POST", "/api/v1/precedents", p),
+  };
+
+  /**
+   * Taste: what a team wants its agents' work to look like. get() returns the rules in force and
+   * recent examples for a category (plus those for all work); add guidance to your agent's
+   * instructions. check() holds a draft up against them before a person sees it and says which
+   * rules it breaks and why. Rules are written directly, or drafted by Plures from the team's notes
+   * and approved by a team member first. Free. The same for test and live keys.
+   */
+  taste = {
+    get: (p: { category?: string; examples?: number } = {}) => {
+      const q = new URLSearchParams();
+      if (p.category) q.set("category", p.category);
+      if (p.examples != null) q.set("examples", String(p.examples));
+      return this.req<Taste>("GET", `/api/v1/taste${q.size ? `?${q}` : ""}`);
+    },
+    check: (p: { draft?: string; image_url?: string; category?: string }) => this.req<TasteCheck>("POST", "/api/v1/taste/check", p),
+    rules: {
+      list: (p: { status?: TasteRule["status"] | "all"; category?: string } = {}) => {
+        const q = new URLSearchParams();
+        if (p.status) q.set("status", p.status);
+        if (p.category) q.set("category", p.category);
+        return this.req<{ object: "list"; data: TasteRule[] }>("GET", `/api/v1/taste/rules${q.size ? `?${q}` : ""}`);
+      },
+      /** In force at once. */
+      add: (p: { text: string; category?: string }) => this.req<TasteRule>("POST", "/api/v1/taste/rules", p),
+      retire: (id: string) => this.req<TasteRule>("DELETE", `/api/v1/taste/rules/${encodeURIComponent(id)}`),
+    },
+    examples: {
+      list: (p: { category?: string; limit?: number } = {}) => {
+        const q = new URLSearchParams();
+        if (p.category) q.set("category", p.category);
+        if (p.limit != null) q.set("limit", String(p.limit));
+        return this.req<{ object: "list"; data: TasteExample[] }>("GET", `/api/v1/taste/examples${q.size ? `?${q}` : ""}`);
+      },
+      /** Needs image_url (a public https image) or text. */
+      add: (p: { verdict: "like" | "dislike"; image_url?: string; text?: string; note?: string; category?: string }) => this.req<TasteExample>("POST", "/api/v1/taste/examples", p),
+      remove: (id: string) => this.req<{ object: "taste_example"; id: string; deleted: true }>("DELETE", `/api/v1/taste/examples/${encodeURIComponent(id)}`),
+    },
   };
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */

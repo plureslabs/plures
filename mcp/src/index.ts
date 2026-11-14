@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.8.0";
+const VERSION = "1.9.0";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -26,6 +26,9 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "set route to team for those, and for anything confidential, a policy call or regulated, so it goes straight to the developer's team instead of verified people. " +
     "For routine calls the developer's people have decided many times before, set use_precedent on ask_humans: when the case is settled in their judgment graph it is decided by precedent for $0.05, otherwise it goes to people as usual. " +
     "find_precedents shows how similar cases were decided, for free. " +
+    "Before you produce work a team will judge (a post, a reply, a design, an image), call get_taste for that kind of work and follow the rules it returns; they are the team's standing instructions. " +
+    "When a draft is ready, call check_against_taste and fix what it reports before asking a person. A check that says it could not assess the draft is not approval. " +
+    "When the user states a standing preference for their agents' work, offer to save it with add_taste_rule; when they show something they like or dislike, add_taste_example. " +
     "audit_my_agent sends a free audit of up to 50 decisions the agent already made (from logs or a database), and get_audit_report reads the results; suggest it when a developer wants to know where their agent goes wrong before integrating. " +
     "Use ask_judgment when there's no right answer to check, only what people think: which of two replies, designs or model answers is better, whether a customer would accept something, how well work meets a brief, whether a design, video or generated image has a flaw. " +
     "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
@@ -303,6 +306,94 @@ server.registerTool("find_precedents", {
       ? `Settled: people decided ${r.suggestion.support} close cases ${r.suggestion.label ?? r.suggestion.answer}, with at least ${Math.round(r.suggestion.min_agreement * 100)}% agreement. ask_humans with use_precedent will decide it this way for $0.05.`
       : r.data.length ? "Not settled, so ask people. The closest past decisions:" : `No similar past decisions among ${r.considered} in ${r.mode} mode. Ask people.`;
     return { content: [{ type: "text" as const, text: [head, ...(r.suggestion && lines.length ? ["The closest past decisions:"] : []), ...lines].join("\n") }], structuredContent: r as unknown as Record<string, unknown> };
+  } catch (e) { return fail(e); }
+});
+
+type TRule = { id: string; text: string; category: string | null };
+type TExample = { id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[] };
+
+server.registerTool("get_taste", {
+  title: "Read the team's taste",
+  description: "Returns what this team wants its agents' work to look like: the standing rules in force and recent examples of what they like and don't. " +
+    "Call it before producing work the team will judge, and follow the rules. Pass category for one kind of work; rules that apply to everything are always included. Free.",
+  inputSchema: {
+    category: z.string().max(80).optional().describe("The kind of work, as the team names it: social, logos, support replies"),
+    examples: z.number().int().min(0).max(50).optional().describe("How many recent examples to include. Default 12"),
+  },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, async (p) => {
+  if (!KEY) return noKey();
+  try {
+    const q = new URLSearchParams();
+    if (p.category) q.set("category", p.category);
+    if (p.examples != null) q.set("examples", String(p.examples));
+    const r = await api("GET", `/api/v1/taste${q.size ? `?${q}` : ""}`) as { rules: TRule[]; examples: TExample[] };
+    const rules = r.rules.map((x) => `- ${x.text}${x.category ? ` (${x.category})` : ""}`);
+    const ex = r.examples.map((e) => `- ${e.verdict === "like" ? "Liked" : "Not liked"}${e.category ? ` (${e.category})` : ""}: ${e.description ?? e.text?.slice(0, 200) ?? e.image_url ?? ""}${e.note ? ` Their note: "${e.note}"` : ""}`);
+    const text = [
+      rules.length ? "The team's standing rules. Follow them:" : "This team has no rules yet for this kind of work.", ...rules,
+      ...(ex.length ? ["", "Examples they gave (leanings, not rules):", ...ex] : []),
+    ].join("\n");
+    return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("check_against_taste", {
+  title: "Check a draft against the team's taste",
+  description: "Holds a draft up against the team's rules and examples before a person sees it, and says which rules it breaks and why. " +
+    "Send the text, a public https image link, or both. Fix what it reports, then ask a person if the work still needs one. Free.",
+  inputSchema: {
+    draft: z.string().max(12000).optional().describe("The text of the draft"),
+    image_url: z.string().url().optional().describe("A public https link to the image: PNG, JPEG, WebP or GIF up to 4 MB"),
+    category: z.string().max(80).optional().describe("The kind of work"),
+  },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, async (p) => {
+  if (!KEY) return noKey();
+  if (!p.draft && !p.image_url) return { content: [{ type: "text" as const, text: "Send draft, image_url, or both." }], isError: true };
+  try {
+    const r = await api("POST", "/api/v1/taste/check", p) as { pass: boolean; checked: boolean; summary: string; violations: { rule: string; why: string }[]; suggestions: string[] };
+    const text = !r.checked ? `Not checked: ${r.summary} This is not approval.`
+      : [r.pass ? `Passes the team's rules. ${r.summary}` : `Breaks ${r.violations.length} of the team's rules. ${r.summary}`,
+        ...r.violations.map((v) => `- Rule: "${v.rule}" Why: ${v.why}`),
+        ...(r.suggestions.length ? ["Suggestions:", ...r.suggestions.map((x) => `- ${x}`)] : [])].join("\n");
+    return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("add_taste_rule", {
+  title: "Save a standing rule",
+  description: "Saves a standing rule for this team's agents, in force at once. Use it only when the user states a preference that should hold from now on, and confirm the wording with them first. One plain sentence.",
+  inputSchema: {
+    text: z.string().min(8).max(400).describe("The rule, as one plain sentence an agent can follow"),
+    category: z.string().max(80).optional().describe("The kind of work it applies to. Leave out to apply to everything"),
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+}, async (p) => {
+  if (!KEY) return noKey();
+  try {
+    const r = await api("POST", "/api/v1/taste/rules", p) as TRule;
+    return { content: [{ type: "text" as const, text: `Saved as a rule${r.category ? ` for ${r.category}` : " for all work"}: "${r.text}" (${r.id}). The team can retire it on the Taste page of their dashboard.` }], structuredContent: r as unknown as Record<string, unknown> };
+  } catch (e) { return fail(e); }
+});
+
+server.registerTool("add_taste_example", {
+  title: "Save an example of what the team likes or doesn't",
+  description: "Saves something the team likes or doesn't, so their agents can take it into account: an image by public https link, or a piece of text, with an optional note on why. Plures describes and tags it.",
+  inputSchema: {
+    verdict: z.enum(["like", "dislike"]).describe("Whether the team likes it or not"),
+    image_url: z.string().url().optional().describe("A public https link to the image"),
+    text: z.string().max(6000).optional().describe("The text, when the example is writing"),
+    note: z.string().max(600).optional().describe("What they like or dislike about it, in their words"),
+    category: z.string().max(80).optional().describe("The kind of work it is an example of"),
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+}, async (p) => {
+  if (!KEY) return noKey();
+  if (!p.image_url && !p.text) return { content: [{ type: "text" as const, text: "An example needs image_url or text." }], isError: true };
+  try {
+    const r = await api("POST", "/api/v1/taste/examples", p) as TExample;
+    return { content: [{ type: "text" as const, text: `Saved as something the team ${r.verdict === "like" ? "likes" : "doesn't like"} (${r.id}).` }], structuredContent: r as unknown as Record<string, unknown> };
   } catch (e) { return fail(e); }
 });
 

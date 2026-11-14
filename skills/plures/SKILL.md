@@ -96,6 +96,16 @@ To look without deciding, `plures.precedents.search({ question, context, options
 
 To check an agent before integrating, the free audit sends up to 50 decisions it already made (from logs, a database or fixtures) to people: `plures.audits.create({ rows: [{ input, decision }], kind: "check" | "judgment", about })` (Python `create_audit(...)`, MCP `audit_my_agent`). Once per account, reviewed by a person at Plures first, results in a few days via `plures.audits.get()` (Python `get_audit()`, MCP `get_audit_report`). Leave out names and private details.
 
+
+## Taste: what the team wants the work to look like
+
+Precedents say how a case was decided before. Taste is the team's standard for the work itself: standing rules ("An announcement of an integration always shows the partner's logo beside ours") and examples of what they like and don't. It is free and belongs to the account, so test and live keys read the same thing.
+
+- **Before producing work the team will judge** (a post, a reply, a design), read it: `plures.taste.get({ category })` (Python `get_taste(category=...)`, MCP `get_taste`, `GET /api/v1/taste?category=`). Follow `rules`; add `guidance` to the agent's instructions. `examples` show leanings, each with a description Plures wrote.
+- **Before asking a person**, check the draft: `plures.taste.check({ draft, image_url, category })` (Python `check_taste(...)`, MCP `check_against_taste`). It returns `pass`, `violations` with the rule and why, and `suggestions`. Fix those first. `checked: false` means nothing was assessed. Never treat that as approval.
+- **When the user states a standing preference**, save it: `plures.taste.rules.add({ text, category })` (Python `add_taste_rule`, MCP `add_taste_rule`). When they show something they like or dislike: `plures.taste.examples.add({ verdict, image_url or text, note })`.
+
+Rules also come from the team deciding as usual: when a team member's note on a decision says what they want from now on, Plures drafts a rule and the team approves or declines it. A drafted rule never appears in `taste.get` until a person approved it. Taste does not replace asking: it removes the drafts a person would have sent back.
 ## Writing a good task
 
 - `question`: one decision, answerable from `context` alone by someone with no other knowledge of the app.
