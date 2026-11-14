@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.27.0"
+__version__ = "1.28.0"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -143,6 +143,47 @@ class Plures:
         decided by precedent when it's settled, send create_task(..., use_precedent=True)."""
         body = {k: v for k, v in {"question": question, "context": context, "category": category, "app": app, "options": options, "limit": limit}.items() if v is not None}
         return self._req("POST", "/api/v1/precedents", body)
+
+    def get_taste(self, category=None, examples=None):
+        """Taste: what a team wants its agents' work to look like. Returns the rules in force and
+        recent examples for the category (plus those for all work), and guidance: the rules as
+        text, ready to add to your agent's instructions. Free. The same for test and live keys."""
+        q = {k: v for k, v in {"category": category, "examples": examples}.items() if v is not None}
+        return self._req("GET", "/api/v1/taste" + ("?" + urllib.parse.urlencode(q) if q else ""))
+
+    def check_taste(self, draft=None, image_url=None, category=None):
+        """Holds a draft up against the team's rules and examples before a person sees it. Returns
+        pass, the rules it breaks with the reason for each, and suggestions. checked False means
+        nothing was assessed (no rules yet, or the check was unavailable): never treat that as
+        approval. image_url is a public https PNG, JPEG, WebP or GIF up to 4 MB."""
+        body = {k: v for k, v in {"draft": draft, "image_url": image_url, "category": category}.items() if v is not None}
+        return self._req("POST", "/api/v1/taste/check", body)
+
+    def list_taste_rules(self, status=None, category=None):
+        """status: active (default), proposed, declined, retired or all."""
+        q = {k: v for k, v in {"status": status, "category": category}.items() if v is not None}
+        return self._req("GET", "/api/v1/taste/rules" + ("?" + urllib.parse.urlencode(q) if q else ""))
+
+    def add_taste_rule(self, text, category=None):
+        """Adds a standing rule, in force at once. One plain sentence, up to 400 characters."""
+        body = {k: v for k, v in {"text": text, "category": category}.items() if v is not None}
+        return self._req("POST", "/api/v1/taste/rules", body)
+
+    def retire_taste_rule(self, rule_id):
+        return self._req("DELETE", "/api/v1/taste/rules/" + urllib.parse.quote(rule_id))
+
+    def list_taste_examples(self, category=None, limit=None):
+        q = {k: v for k, v in {"category": category, "limit": limit}.items() if v is not None}
+        return self._req("GET", "/api/v1/taste/examples" + ("?" + urllib.parse.urlencode(q) if q else ""))
+
+    def add_taste_example(self, verdict, image_url=None, text=None, note=None, category=None):
+        """Adds something the team likes or doesn't: verdict "like" or "dislike", with image_url
+        or text, and an optional note on why. Plures describes and tags it shortly after."""
+        body = {k: v for k, v in {"verdict": verdict, "image_url": image_url, "text": text, "note": note, "category": category}.items() if v is not None}
+        return self._req("POST", "/api/v1/taste/examples", body)
+
+    def remove_taste_example(self, example_id):
+        return self._req("DELETE", "/api/v1/taste/examples/" + urllib.parse.quote(example_id))
 
     def get_task(self, task_id, receipt=None):
         """receipt (preview): read a task paid with x402 without an API key. Remembered after create_task."""
