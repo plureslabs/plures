@@ -211,7 +211,7 @@ export type ScorecardSetting = { value: number; default: number; min: number; ma
 export type Scorecard = {
   object: "scorecard"; mode: "live" | "test"; app: string | null; window_days: number; enough: number; measures: ScorecardMeasure[];
   taste_checks: { checks: number; held: number };
-  settings: Record<"similarity" | "support" | "agreement" | "audit_rate", ScorecardSetting>;
+  settings: Record<"similarity" | "support" | "agreement" | "audit_rate" | "rule_fit", ScorecardSetting>;
   /** A change to a setting Plures is proposing, waiting for a person's answer. */
   suggestion: { id: string; setting: string; from: number; to: number; direction: "stricter" | "looser"; question: string; why: string;
     evidence: { decisions_replayed: number; now: { settles: number; wrong: number }; with_change: { settles: number; wrong: number } }; created_at: string } | null;
@@ -223,7 +223,9 @@ export type TasteExample = { object: "taste_example"; id: string; verdict: "like
 /** guidance is the rules as text, ready to add to an agent's instructions. */
 export type Taste = { object: "taste"; category: string | null; rules: TasteRule[]; examples: TasteExample[]; guidance: string };
 /** checked false means nothing was assessed (no rules yet, or the check was unavailable): never treat that as approval. */
-export type TasteCheck = { object: "taste_check"; pass: boolean; checked: boolean; summary: string; rules_considered: number; examples_considered: number; violations: { rule_id: string; rule: string; why: string }[]; suggestions: string[] };
+export type TasteCheck = { object: "taste_check"; pass: boolean; checked: boolean; summary: string; rules_considered: number; examples_considered: number; violations: { rule_id: string; rule: string; why: string }[]; suggestions: string[];
+  /** The categories whose rules were applied: one you named (`label`), or one Plures judged the draft to be (`router`), with how sure it was from 0 to 1. */
+  categories?: { category: string; by: "label" | "router"; fit: number }[] };
 /** Your main team, named teams and rules by category. */
 export type RoutingRule = { category: string; route: Route; group: string | null; escalate_below: number | null };
 export type Routing = {
@@ -272,7 +274,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.29.0";
+export const VERSION = "1.29.1";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;

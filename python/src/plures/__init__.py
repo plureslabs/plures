@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.29.0"
+__version__ = "1.29.1"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -164,7 +164,9 @@ class Plures:
         """Holds a draft up against the team's rules and examples before a person sees it. Returns
         pass, the rules it breaks with the reason for each, and suggestions. checked False means
         nothing was assessed (no rules yet, or the check was unavailable): never treat that as
-        approval. image_url is a public https PNG, JPEG, WebP or GIF up to 4 MB."""
+        approval. image_url is a public https PNG, JPEG, WebP or GIF up to 4 MB. category need not be
+        exact or sent at all: Plures reads the draft and applies the rules of each category it is
+        sure enough the draft belongs to; categories in the result lists which were applied."""
         body = {k: v for k, v in {"draft": draft, "image_url": image_url, "category": category}.items() if v is not None}
         return self._req("POST", "/api/v1/taste/check", body)
 

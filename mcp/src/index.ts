@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.10.1";
+const VERSION = "1.10.2";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -336,7 +336,7 @@ server.registerTool("get_scorecard", {
     const as = (k: string, v: number) => (k === "support" ? String(v) : `${Math.round(v * 100)}%`);
     const set = Object.entries(r.settings).map(([k, x]) => `- ${x.label}: ${as(k, x.value)}${x.value !== x.default ? ` (default ${as(k, x.default)})` : ""}`);
     const text = [
-      `Last 30 days, ${r.mode} mode:`, ...lines, "", "Precedent settings:", ...set,
+      `Last 30 days, ${r.mode} mode:`, ...lines, "", "Settings:", ...set,
       ...(r.suggestion ? ["", `Plures is suggesting a change, waiting for a person: ${r.suggestion.question}`, r.suggestion.why, "A person answers this at https://plures.si/dashboard/graph#settings or in the Decisions app."] : []),
     ].join("\n");
     return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
@@ -376,18 +376,19 @@ server.registerTool("check_against_taste", {
   inputSchema: {
     draft: z.string().max(12000).optional().describe("The text of the draft"),
     image_url: z.string().url().optional().describe("A public https link to the image: PNG, JPEG, WebP or GIF up to 4 MB"),
-    category: z.string().max(80).optional().describe("The kind of work"),
+    category: z.string().max(80).optional().describe("The kind of work, if you know the team's name for it. Optional and need not be exact: Plures reads the draft and applies the rules of every category it fits"),
   },
   annotations: { readOnlyHint: true, openWorldHint: true },
 }, async (p) => {
   if (!KEY) return noKey();
   if (!p.draft && !p.image_url) return { content: [{ type: "text" as const, text: "Send draft, image_url, or both." }], isError: true };
   try {
-    const r = await api("POST", "/api/v1/taste/check", p) as { pass: boolean; checked: boolean; summary: string; violations: { rule: string; why: string }[]; suggestions: string[] };
+    const r = await api("POST", "/api/v1/taste/check", p) as { pass: boolean; checked: boolean; summary: string; violations: { rule: string; why: string }[]; suggestions: string[]; categories?: { category: string; by: string; fit: number }[] };
     const text = !r.checked ? `Not checked: ${r.summary} This is not approval.`
       : [r.pass ? `Passes the team's rules. ${r.summary}` : `Breaks ${r.violations.length} of the team's rules. ${r.summary}`,
         ...r.violations.map((v) => `- Rule: "${v.rule}" Why: ${v.why}`),
-        ...(r.suggestions.length ? ["Suggestions:", ...r.suggestions.map((x) => `- ${x}`)] : [])].join("\n");
+        ...(r.suggestions.length ? ["Suggestions:", ...r.suggestions.map((x) => `- ${x}`)] : []),
+        ...(r.categories?.length ? [`Checked as: ${r.categories.map((c) => (c.by === "label" ? c.category : `${c.category} (${Math.round(c.fit * 100)}% sure)`)).join(", ")}, plus the rules for all work.`] : [])].join("\n");
     return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
   } catch (e) { return fail(e); }
 });
