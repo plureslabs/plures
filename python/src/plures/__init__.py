@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.28.0"
+__version__ = "1.29.0"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -143,6 +143,15 @@ class Plures:
         decided by precedent when it's settled, send create_task(..., use_precedent=True)."""
         body = {k: v for k, v in {"question": question, "context": context, "category": category, "app": app, "options": options, "limit": limit}.items() if v is not None}
         return self._req("POST", "/api/v1/precedents", body)
+
+    def get_scorecard(self, app=None):
+        """Is it working. The numbers from the Judgment graph page for this key's mode: accuracy,
+        automation, clean (right the first time), false_alarms, time and cost, each with value, n
+        (how many decisions it rests on), early (n under enough: a hint, not a fact), before and
+        trend. Also settings (the account's precedent settings) and suggestion (a change Plures
+        is proposing, or None). Free, and read only: a person changes settings and answers
+        suggestions."""
+        return self._req("GET", "/api/v1/scorecard" + ("?" + urllib.parse.urlencode({"app": app}) if app else ""))
 
     def get_taste(self, category=None, examples=None):
         """Taste: what a team wants its agents' work to look like. Returns the rules in force and
