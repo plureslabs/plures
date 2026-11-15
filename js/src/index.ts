@@ -90,6 +90,8 @@ export type Consensus = { votes: number; unanimous: boolean; lead: string | null
 export type Escalation = { reason: "split" | "tie" | "no_answer" | "team_only" | "unclear"; escalated_at: string; verifiers: Result | null; team_deadline?: string; lead_called_at?: string };
 export type Task = {
   id: string; object: "task"; app?: string | null; mode: "live" | "test"; status: TaskStatus;
+  /** Only on the response to creating a task: things to know about it. Few verified people are around so it may be slow, or a field in the request was not one Plures knows and was ignored (with the field probably meant). */
+  warnings?: string[];
   /** false when a sampled check didn't pick this task: it wasn't sent to people, and result.answer is the first option. */
   sampled?: boolean;
   question: string; context: string | null; image_url: string | null; instructions: string | null;
@@ -274,7 +276,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.29.1";
+export const VERSION = "1.29.2";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;

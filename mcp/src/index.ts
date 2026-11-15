@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.10.2";
+const VERSION = "1.10.3";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -40,8 +40,15 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
 
 const TEST_NOTE = "TEST MODE: this answer is simulated; no person saw the question. It always picks the first option, so don't act on it. Use a live key for real answers.";
 
+// Plures adds warnings when a task was created but something about it needs the caller's attention:
+// few verified people are around so it may be slow, or the request carried a field Plures ignored.
+const warned = (t: Task) => {
+  const w = (t as Task & { warnings?: unknown }).warnings;
+  return Array.isArray(w) && w.length ? `\nHeads up from Plures:\n${w.slice(0, 6).map((x) => `- ${String(x).slice(0, 300)}`).join("\n")}` : "";
+};
+
 const fmt = (t: Task) => {
-  const text = describe(t);
+  const text = describe(t) + warned(t);
   // Sent straight to the team, a test task still reaches real people on the developer's team.
   if (t.mode === "test" && (t as TaskPlus).route === "team") return `TEST TASK, sent to your own team (marked as a test in their email).\n${text}`;
   return t.mode === "test" ? `${TEST_NOTE}\n${text}` : text;
