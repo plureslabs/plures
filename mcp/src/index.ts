@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.10.3";
+const VERSION = "1.11.0";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -30,7 +30,7 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "When a draft is ready, call check_against_taste and fix what it reports before asking a person. A check that says it could not assess the draft is not approval. " +
     "When the user states a standing preference for their agents' work, offer to save it with add_taste_rule; when they show something they like or dislike, add_taste_example. " +
     "get_scorecard says whether precedents and taste are working for this account (accuracy, share answered by precedent, right the first time, false alarms, time and cost), each with how many decisions it rests on; read it before relying on use_precedent, and when the user asks how their agents are doing. It is read only: settings and suggested changes are answered by a person in the dashboard. " +
-    "audit_my_agent sends a free audit of up to 50 decisions the agent already made (from logs or a database), and get_audit_report reads the results; suggest it when a developer wants to know where their agent goes wrong before integrating. " +
+    "audit_my_agent sends an audit (the first is free, more cost $0.20 a decision from credit) of up to 50 decisions the agent already made (from logs or a database), and get_audit_report reads the results; suggest it when a developer wants to know where their agent goes wrong before integrating. " +
     "Use ask_judgment when there's no right answer to check, only what people think: which of two replies, designs or model answers is better, whether a customer would accept something, how well work meets a brief, whether a design, video or generated image has a flaw. " +
     "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
     "Sign offs (ask_judgment with format signoff) are coming soon: live keys get an error for now. " +
@@ -242,10 +242,10 @@ server.registerTool("ask_judgment", {
 });
 
 server.registerTool("audit_my_agent", {
-  title: "Audit the agent's past decisions (free)",
-  description: "Sends the developer's free Plures audit: up to 50 decisions an AI agent already made, each checked by ID verified people. Once per account, free with a test or live key. " +
+  title: "Audit the agent's past decisions",
+  description: "Sends a Plures audit: up to 50 decisions an AI agent already made, graded so the developer sees which were wrong. The account's first audit is free. After it has finished, each further audit is paid from the account's credit when it is sent: $0.20 a decision, or $0.50 for kind judgment, so tell the developer the cost and get their yes before sending a second one. One audit at a time. Works with a test or live key. " +
     "Each row is input (what the agent saw, including the policy it should follow) and decision (what it did). Gather them from the developer's logs, database or test fixtures; leave out names and other private details (emails, phones and card numbers are removed anyway). " +
-    "kind check (default) asks whether each call was right; kind judgment asks whether a customer would be happy with it. A person at Plures reviews it before anyone grades it, and results take a few days. Use get_audit_report to read them.",
+    "kind check (default) asks whether each call was right; kind judgment asks whether a customer would be happy with it. A person at Plures reviews it before anyone grades it. Use get_audit_report to read the results.",
   inputSchema: {
     rows: z.array(z.object({ input: z.string().min(1).max(2000), decision: z.string().min(1).max(2000) })).min(1).max(50).optional().describe("The decisions: what the agent saw and what it did"),
     csv: z.string().max(400000).optional().describe("Instead of rows: CSV text with a header row and columns input and decision"),
@@ -257,11 +257,12 @@ server.registerTool("audit_my_agent", {
   if (!KEY) return noKey();
   if (!p.rows?.length && !p.csv) return { content: [{ type: "text" as const, text: "Send rows (input and decision) or csv." }], isError: true };
   try {
-    const a = await api("POST", "/api/v1/audits", p) as { id: string; kind: string; rows: number; answers_per_row: number; removed?: Record<string, number>; dropped?: number; dashboard_url: string };
+    const a = await api("POST", "/api/v1/audits", p) as { id: string; kind: string; rows: number; answers_per_row: number; paid?: boolean; price_cents?: number; removed?: Record<string, number>; dropped?: number; dashboard_url: string };
+    const cost = a.paid && a.price_cents ? `$${(a.price_cents / 100).toFixed(2)} was taken from the account's credit. ` : "";
     const removed = Object.values(a.removed ?? {}).reduce((n, x) => n + x, 0);
-    return { content: [{ type: "text" as const, text: `Sent ${a.rows} decisions to Plures for a free ${a.kind === "judgment" ? "judgment audit (would customers be happy with it)" : "audit (was each call right)"}. ` +
+    return { content: [{ type: "text" as const, text: `Sent ${a.rows} decisions to Plures for ${a.paid ? "an" : "a free"} ${a.kind === "judgment" ? "judgment audit (would customers be happy with it)" : "audit (was each call right)"}. ${cost}` +
       `${removed ? `${removed} personal details were removed. ` : ""}${a.dropped ? `Only the first 50 rows were kept. ` : ""}` +
-      `A person at Plures reviews it first, then ${a.answers_per_row} ID verified people judge each decision; it usually takes a few days. Audit ${a.id}. Check it with get_audit_report or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
+      `A person at Plures reviews it first, then it is graded. Audit ${a.id}. Check it with get_audit_report or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
   } catch (e) { return fail(e); }
 });
 
@@ -274,17 +275,21 @@ server.registerTool("get_audit_report", {
 }, async ({ audit_id }) => {
   if (!KEY) return noKey();
   try {
-    const a = await api("GET", audit_id ? `/api/v1/audits/${encodeURIComponent(audit_id)}` : "/api/v1/audits") as { id: string; kind: string; status: string; rows: number; dashboard_url: string;
-      summary: { total: number; graded: number; right: number; wrong: number; unclear: number; split: number; waiting: number } | null;
+    const a = await api("GET", audit_id ? `/api/v1/audits/${encodeURIComponent(audit_id)}` : "/api/v1/audits") as { id: string; kind: string; status: string; rows: number; dashboard_url: string; mode?: string;
+      summary: { total: number; graded: number; right: number; wrong: number; unclear: number; split: number; waiting: number; human_reviewed?: number; system_graded?: number; sample?: { checked: number; agreed: number } | null } | null;
       data: { n: number; input: string; decision: string; verdict: string; label: string; votes: Record<string, number> }[] };
     if (!a.summary) return { content: [{ type: "text" as const, text: a.status === "declined" ? `Audit ${a.id} was declined. Write to hello@plures.si.` : `Audit ${a.id} (${a.rows} decisions) is with a person at Plures for review; nobody has graded it yet. Check again later or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
     const s = a.summary;
     const j = a.kind === "judgment";
     const head = `${a.status === "ready" ? "Finished" : `In progress: ${s.graded} of ${s.total} graded`}. ` +
       (j ? `Happy with it: ${s.right}. Not happy: ${s.wrong}. Needs changes: ${s.unclear}. Split: ${s.split}.` : `Right: ${s.right}. Wrong: ${s.wrong}. Can't tell: ${s.unclear}. Split: ${s.split}.`);
+    // A hybrid audit: say how much a person graded and how much the system did, so nobody reads it as a panel on every row.
+    const how = a.mode === "hybrid" && s.human_reviewed != null
+      ? `Graded the hybrid way: a person reviewed ${s.human_reviewed} of the decisions and the system graded the other ${s.system_graded ?? 0}.${s.sample?.checked ? ` On the ${s.sample.checked} the system was sure of that a person checked anyway, the person agreed on ${s.sample.agreed}.` : ""}`
+      : null;
     const look = a.data.filter((r) => r.verdict === "wrong" || r.verdict === "split").slice(0, 15)
       .map((r) => `- Row ${r.n}, ${r.label}: saw "${r.input.slice(0, 160)}", did "${r.decision.slice(0, 120)}"`);
-    return { content: [{ type: "text" as const, text: [head, ...(look.length ? [j ? "Where people weren't happy or split:" : "Where people disagreed with the agent or split:", ...look] : []), `Full report: ${a.dashboard_url}`].join("\n") }], structuredContent: a as unknown as Record<string, unknown> };
+    return { content: [{ type: "text" as const, text: [head, ...(how ? [how] : []), ...(look.length ? [j ? "Where people weren't happy or split:" : "Where people disagreed with the agent or split:", ...look] : []), `Full report: ${a.dashboard_url}`].join("\n") }], structuredContent: a as unknown as Record<string, unknown> };
   } catch (e) { return fail(e); }
 });
 
