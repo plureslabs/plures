@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.10.0";
+const VERSION = "1.10.1";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -332,7 +332,9 @@ server.registerTool("get_scorecard", {
   try {
     const r = await api("GET", `/api/v1/scorecard${p.app ? `?app=${encodeURIComponent(p.app)}` : ""}`) as Card;
     const lines = r.measures.map((m) => `- ${m.label}: ${shown(m, m.value)}, from ${m.n} ${m.counts}${m.early && m.n > 0 ? ` (early: under ${r.enough})` : ""}${m.before.n ? `; ${shown(m, m.before.value)} in the 30 days before` : ""}${m.trend ? `; ${m.trend}` : ""}`);
-    const set = Object.values(r.settings).map((x) => `- ${x.label}: ${x.value}${x.value !== x.default ? ` (default ${x.default})` : ""}`);
+    // Shown the way the dashboard shows them: a count for matching decisions, a percentage for the rest.
+    const as = (k: string, v: number) => (k === "support" ? String(v) : `${Math.round(v * 100)}%`);
+    const set = Object.entries(r.settings).map(([k, x]) => `- ${x.label}: ${as(k, x.value)}${x.value !== x.default ? ` (default ${as(k, x.default)})` : ""}`);
     const text = [
       `Last 30 days, ${r.mode} mode:`, ...lines, "", "Precedent settings:", ...set,
       ...(r.suggestion ? ["", `Plures is suggesting a change, waiting for a person: ${r.suggestion.question}`, r.suggestion.why, "A person answers this at https://plures.si/dashboard/graph#settings or in the Decisions app."] : []),
