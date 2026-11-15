@@ -9,12 +9,12 @@
     "subfolder": "mcp"
   },
   "websiteUrl": "https://plures.si/docs#mcp",
-  "version": "1.10.2",
+  "version": "1.10.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "plures-mcp",
-      "version": "1.10.2",
+      "version": "1.10.3",
       "transport": {
         "type": "stdio"
       },
