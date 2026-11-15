@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.29.2"
+__version__ = "1.30.0"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -124,8 +124,14 @@ class Plures:
             return task
 
     def create_audit(self, rows=None, kind="check", about=None, question=None, csv=None):
-        """The free audit: up to 50 decisions your agent already made, checked by ID verified
-        people. Once per account. rows is a list of {"input": what the agent saw, "decision":
+        """An audit: up to 50 decisions your agent already made, graded so you see which were
+        wrong. The first one an account sends is free. Once it has finished you can send another,
+        paid from your credit when it is sent: $0.20 a decision, or $0.50 for a judgment audit.
+        One at a time (409 audit_in_progress); without enough credit it raises
+        PaymentRequiredError. The result has paid, price_cents and mode: "people" (a panel answers
+        every row) or "hybrid" (the system grades every row and one person reviews the ones it
+        calls wrong, is unsure of, and a sample of the rest), with graded_by on each row.
+        rows is a list of {"input": what the agent saw, "decision":
         what it did}, or pass csv with columns input and decision. kind "check" asks whether each
         call was right; "judgment" asks whether a customer would be happy with it. A person at
         Plures reviews it first, so status starts as in_review."""
