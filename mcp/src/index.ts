@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.9.0";
+const VERSION = "1.10.0";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -29,6 +29,7 @@ const server = new McpServer({ name: "plures", version: VERSION }, {
     "Before you produce work a team will judge (a post, a reply, a design, an image), call get_taste for that kind of work and follow the rules it returns; they are the team's standing instructions. " +
     "When a draft is ready, call check_against_taste and fix what it reports before asking a person. A check that says it could not assess the draft is not approval. " +
     "When the user states a standing preference for their agents' work, offer to save it with add_taste_rule; when they show something they like or dislike, add_taste_example. " +
+    "get_scorecard says whether precedents and taste are working for this account (accuracy, share answered by precedent, right the first time, false alarms, time and cost), each with how many decisions it rests on; read it before relying on use_precedent, and when the user asks how their agents are doing. It is read only: settings and suggested changes are answered by a person in the dashboard. " +
     "audit_my_agent sends a free audit of up to 50 decisions the agent already made (from logs or a database), and get_audit_report reads the results; suggest it when a developer wants to know where their agent goes wrong before integrating. " +
     "Use ask_judgment when there's no right answer to check, only what people think: which of two replies, designs or model answers is better, whether a customer would accept something, how well work meets a brief, whether a design, video or generated image has a flaw. " +
     "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
@@ -311,6 +312,34 @@ server.registerTool("find_precedents", {
 
 type TRule = { id: string; text: string; category: string | null };
 type TExample = { id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[] };
+
+type Measure = { key: string; label: string; unit: "ratio" | "seconds" | "cents"; value: number | null; n: number; counts: string; early: boolean; before: { value: number | null; n: number }; trend: string | null };
+type Card = { mode: string; enough: number; measures: Measure[]; taste_checks: { checks: number; held: number };
+  settings: Record<string, { value: number; default: number; label: string }>; suggestion: { question: string; why: string } | null };
+const shown = (m: Measure, v: number | null) => v == null ? "no data"
+  : m.unit === "ratio" ? `${Math.round(v * 100)}%` : m.unit === "cents" ? `$${(v / 100).toFixed(2)}`
+  : v < 90 ? `${Math.round(v)} sec` : v < 5400 ? `${Math.round(v / 60)} min` : `${Math.round(v / 360) / 10} h`;
+
+server.registerTool("get_scorecard", {
+  title: "Is it working",
+  description: "Returns whether precedents and taste are working for this account: precedent accuracy from spot checks, share of decisions answered by precedent, decisions right the first time, taste false alarms, and the time and cost of a decision. " +
+    "Each number comes with how many decisions it rests on; one marked early is a hint, not a fact. Also shows the precedent settings and any change Plures is suggesting. " +
+    "Read only: a person changes settings and answers suggestions in the dashboard. Free.",
+  inputSchema: { app: z.string().max(80).optional().describe("One app's decisions only. Leave out for the whole account") },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, async (p) => {
+  if (!KEY) return noKey();
+  try {
+    const r = await api("GET", `/api/v1/scorecard${p.app ? `?app=${encodeURIComponent(p.app)}` : ""}`) as Card;
+    const lines = r.measures.map((m) => `- ${m.label}: ${shown(m, m.value)}, from ${m.n} ${m.counts}${m.early && m.n > 0 ? ` (early: under ${r.enough})` : ""}${m.before.n ? `; ${shown(m, m.before.value)} in the 30 days before` : ""}${m.trend ? `; ${m.trend}` : ""}`);
+    const set = Object.values(r.settings).map((x) => `- ${x.label}: ${x.value}${x.value !== x.default ? ` (default ${x.default})` : ""}`);
+    const text = [
+      `Last 30 days, ${r.mode} mode:`, ...lines, "", "Precedent settings:", ...set,
+      ...(r.suggestion ? ["", `Plures is suggesting a change, waiting for a person: ${r.suggestion.question}`, r.suggestion.why, "A person answers this at https://plures.si/dashboard/graph#settings or in the Decisions app."] : []),
+    ].join("\n");
+    return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
+  } catch (e) { return fail(e); }
+});
 
 server.registerTool("get_taste", {
   title: "Read the team's taste",

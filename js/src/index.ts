@@ -197,6 +197,26 @@ export type Precedent = {
 export type PrecedentSuggestion = { answer: string; label: string | null; support: number; min_similarity: number; min_agreement: number; task_ids: string[] };
 export type PrecedentSearch = { object: "precedent_search"; mode: "live" | "test"; considered: number; suggestion: PrecedentSuggestion | null; data: Precedent[] };
 /** A standing rule a team set for its agents' work. source "inferred": drafted by Plures from the team's decisions and approved by a team member. */
+export type ScorecardMeasure = {
+  key: "accuracy" | "automation" | "clean" | "false_alarms" | "time" | "cost"; label: string; description: string;
+  unit: "ratio" | "seconds" | "cents"; better: "higher" | "lower" | null;
+  /** null when there is nothing to measure yet. */
+  value: number | null;
+  /** How many decisions the value rests on. */
+  n: number; counts: string;
+  /** true when n is under `enough`: treat the value as a hint, not a fact. */
+  early: boolean; before: { value: number | null; n: number }; trend: "better" | "worse" | "level" | null;
+};
+export type ScorecardSetting = { value: number; default: number; min: number; max: number; label: string };
+export type Scorecard = {
+  object: "scorecard"; mode: "live" | "test"; app: string | null; window_days: number; enough: number; measures: ScorecardMeasure[];
+  taste_checks: { checks: number; held: number };
+  settings: Record<"similarity" | "support" | "agreement" | "audit_rate", ScorecardSetting>;
+  /** A change to a setting Plures is proposing, waiting for a person's answer. */
+  suggestion: { id: string; setting: string; from: number; to: number; direction: "stricter" | "looser"; question: string; why: string;
+    evidence: { decisions_replayed: number; now: { settles: number; wrong: number }; with_change: { settles: number; wrong: number } }; created_at: string } | null;
+};
+
 export type TasteRule = { object: "taste_rule"; id: string; text: string; category: string | null; status: "proposed" | "active" | "declined" | "retired"; source: "manual" | "team" | "inferred"; created_at: string; approved_at: string | null };
 /** Something the team likes or doesn't. description and tags are written by Plures shortly after it is added. */
 export type TasteExample = { object: "taste_example"; id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[]; created_at: string };
@@ -252,7 +272,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.28.0";
+export const VERSION = "1.29.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -539,6 +559,17 @@ export class Plures {
   precedents = {
     search: (p: { question: string; context?: string; category?: string; app?: string; options?: (string | Option)[]; limit?: number }) =>
       this.req<PrecedentSearch>("POST", "/api/v1/precedents", p),
+  };
+
+  /**
+   * Is it working. The numbers from the Judgment graph page for this key's mode: precedent accuracy,
+   * share answered by precedent, right the first time, taste false alarms, and the time and cost of
+   * a decision, each for the last 30 days and the 30 before with how many decisions it rests on.
+   * Also the account's precedent settings and any change Plures is suggesting. Free, and read
+   * only: a person changes settings and answers suggestions.
+   */
+  scorecard = {
+    get: (p: { app?: string } = {}) => this.req<Scorecard>("GET", `/api/v1/scorecard${p.app ? `?app=${encodeURIComponent(p.app)}` : ""}`),
   };
 
   /**
