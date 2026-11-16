@@ -292,7 +292,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.30.0";
+export const VERSION = "1.30.1";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -570,7 +570,9 @@ export class Plures {
    * your credit when it is sent: $0.20 a decision, or $0.50 for a judgment audit. One at a time:
    * a second while one is running throws with code audit_in_progress, and one you cannot pay for
    * throws PaymentRequiredError. kind "check" (default) asks whether each call was right;
-   * "judgment" asks whether a customer would be happy with it. status starts as in_review; get()
+   * "judgment" asks whether a customer would be happy with it. The dashboard calls these the
+   * accuracy audit and the quality audit. Rows are text: a quality audit with images, video or
+   * audio is sent from the dashboard, and the API refuses a row with a media field. status starts as in_review; get()
    * returns every row's verdict once grading starts.
    */
   audits = {

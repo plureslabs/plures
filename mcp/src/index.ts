@@ -8,7 +8,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-const VERSION = "1.11.0";
+const VERSION = "1.11.1";
 // PLURES_API_KEY, or the API key set in the Claude plugin settings.
 const KEY = process.env.PLURES_API_KEY || process.env.CLAUDE_PLUGIN_OPTION_API_KEY;
 const plures = KEY ? new Plures(KEY, { baseUrl: process.env.PLURES_BASE_URL }) : null;
@@ -245,7 +245,7 @@ server.registerTool("audit_my_agent", {
   title: "Audit the agent's past decisions",
   description: "Sends a Plures audit: up to 50 decisions an AI agent already made, graded so the developer sees which were wrong. The account's first audit is free. After it has finished, each further audit is paid from the account's credit when it is sent: $0.20 a decision, or $0.50 for kind judgment, so tell the developer the cost and get their yes before sending a second one. One audit at a time. Works with a test or live key. " +
     "Each row is input (what the agent saw, including the policy it should follow) and decision (what it did). Gather them from the developer's logs, database or test fixtures; leave out names and other private details (emails, phones and card numbers are removed anyway). " +
-    "kind check (default) asks whether each call was right; kind judgment asks whether a customer would be happy with it. A person at Plures reviews it before anyone grades it. Use get_audit_report to read the results.",
+    "kind check (default) asks whether each call was right (the dashboard calls it the accuracy audit); kind judgment asks whether a customer would be happy with it (the quality audit). Text only: to have an image, video or audio clip judged, the developer sends a quality audit from plures.si/dashboard/audit with a media column. A person at Plures reviews it before anyone grades it. Use get_audit_report to read the results.",
   inputSchema: {
     rows: z.array(z.object({ input: z.string().min(1).max(2000), decision: z.string().min(1).max(2000) })).min(1).max(50).optional().describe("The decisions: what the agent saw and what it did"),
     csv: z.string().max(400000).optional().describe("Instead of rows: CSV text with a header row and columns input and decision"),
