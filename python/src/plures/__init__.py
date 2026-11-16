@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.30.0"
+__version__ = "1.30.1"
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -134,7 +134,9 @@ class Plures:
         rows is a list of {"input": what the agent saw, "decision":
         what it did}, or pass csv with columns input and decision. kind "check" asks whether each
         call was right; "judgment" asks whether a customer would be happy with it. A person at
-        Plures reviews it first, so status starts as in_review."""
+        Plures reviews it first, so status starts as in_review.
+        The dashboard calls these the accuracy audit and the quality audit. Rows are text: a
+        quality audit with images, video or audio is sent from the dashboard, not the API."""
         body = {k: v for k, v in {"rows": rows, "csv": csv, "kind": kind, "about": about, "question": question}.items() if v is not None}
         return self._req("POST", "/api/v1/audits", body)
 
