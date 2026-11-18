@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-export const VERSION = "1.12.0";
+export const VERSION = "1.13.0";
 
 export type ServerOptions = {
   /** A Plures API key (pk_test_ or pk_live_). Without one, every tool explains how to get one. */
@@ -501,11 +501,20 @@ export function createServer(opts: ServerOptions = {}): McpServer {
 
   server.registerTool("get_mapping_guide", {
     title: "Get the Plures mapping guide",
-    description: "Returns the steps for mapping the developer's AI agent for Plures: how to find its steps and actions, where to suggest a person checks, and how to draft each check. Call this first when asked to map an app for Plures.",
-    inputSchema: {},
+    description: "Returns the steps for mapping the developer's AI agent for Plures: how to find its steps and actions, where to suggest a person checks, and how to draft each check, plus the areas the developer asked the map to look at too. Call this first when asked to map an app for Plures.",
+    inputSchema: { app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app") },
     annotations: { readOnlyHint: true, openWorldHint: true },
-  }, async () => {
-    try { const r = await fetch(`${BASE}/api/v1/map_guide`); return { content: [{ type: "text" as const, text: await r.text() }] }; } catch (e) { return fail(e); }
+  }, async ({ app }) => {
+    try {
+      // With a key, the app's own guide (with its Map also note); otherwise, or if that fails, the public one.
+      if (KEY) {
+        const id = app ?? APP ?? "default";
+        const r = await fetch(`${BASE}/api/v1/apps/${encodeURIComponent(id)}/map_guide`, { headers: { authorization: `Bearer ${KEY}`, "user-agent": opts.userAgent ?? `plures-mcp/${VERSION}` } }).catch(() => null);
+        if (r?.ok) return { content: [{ type: "text" as const, text: await r.text() }] };
+      }
+      const r = await fetch(`${BASE}/api/v1/map_guide`);
+      return { content: [{ type: "text" as const, text: await r.text() }] };
+    } catch (e) { return fail(e); }
   });
 
   server.registerTool("submit_agent_map", {
