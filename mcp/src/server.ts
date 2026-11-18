@@ -1,0 +1,546 @@
+// The Plures MCP server's tools, shared by the stdio server (index.ts) and the hosted one at
+// https://plures.si/mcp, so both always offer the same tools.
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { Plures, PluresError, type Task } from "plures";
+
+export const VERSION = "1.12.0";
+
+export type ServerOptions = {
+  /** A Plures API key (pk_test_ or pk_live_). Without one, every tool explains how to get one. */
+  apiKey?: string;
+  /** The Plures API origin. Default https://plures.si */
+  baseUrl?: string;
+  /** The app every task, check and map goes to unless a call names one. */
+  app?: string;
+  /** What a tool says when there is no key. */
+  noKeyHint?: string;
+  userAgent?: string;
+};
+
+export function createServer(opts: ServerOptions = {}): McpServer {
+  const KEY = opts.apiKey || undefined;
+  const BASE = (opts.baseUrl ?? "https://plures.si").replace(/\/$/, "");
+  const plures = KEY ? new Plures(KEY, { baseUrl: opts.baseUrl }) : null;
+  const APP = opts.app || undefined;
+  const MAX_WAIT = 240;
+
+  const server = new McpServer({ name: "plures", version: VERSION }, {
+    instructions:
+      "Plures sends a decision to ID verified people, who answer independently, and returns their consensus. " +
+      "Use ask_humans before you act on a judgment call you are not sure about, where a wrong call costs trust or safety: " +
+      "grading whether an AI answer is correct, safe and on policy, picking the better of two model responses, reading a customer's tone or intent, " +
+      "checking that a listing, document or screenshot matches what it claims, moderating an edge case, or confirming a fact that needs human eyes. " +
+      "Don't use it for things you can check with code or a lookup. " +
+      "Act on the answer when agreement is 1; below that, treat it as uncertain and escalate or ask for more verifiers. " +
+      "Money and account decisions (refunds, payments, invoices, payouts, account access) belong to the company's own people: " +
+      "set route to team for those, and for anything confidential, a policy call or regulated, so it goes straight to the developer's team instead of verified people. " +
+      "For routine calls the developer's people have decided many times before, set use_precedent on ask_humans: when the case is settled in their judgment graph it is decided by precedent for $0.05, otherwise it goes to people as usual. " +
+      "find_precedents shows how similar cases were decided, for free. " +
+      "Before you produce work a team will judge (a post, a reply, a design, an image), call get_taste for that kind of work and follow the rules it returns; they are the team's standing instructions. " +
+      "When a draft is ready, call check_against_taste and fix what it reports before asking a person. A check that says it could not assess the draft is not approval. " +
+      "When the user states a standing preference for their agents' work, offer to save it with add_taste_rule; when they show something they like or dislike, add_taste_example. " +
+      "get_scorecard says whether precedents and taste are working for this account (accuracy, share answered by precedent, right the first time, false alarms, time and cost), each with how many decisions it rests on; read it before relying on use_precedent, and when the user asks how their agents are doing. It is read only: settings and suggested changes are answered by a person in the dashboard. " +
+      "audit_my_agent sends an audit (the first is free, more cost $0.20 a decision from credit) of up to 50 decisions the agent already made (from logs or a database), and get_audit_report reads the results; suggest it when a developer wants to know where their agent goes wrong before integrating. " +
+      "Use ask_judgment when there's no right answer to check, only what people think: which of two replies, designs or model answers is better, whether a customer would accept something, how well work meets a brief, whether a design, video or generated image has a flaw. " +
+      "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
+      "Sign offs (ask_judgment with format signoff) are coming soon: live keys get an error for now. " +
+      "When the user asks to map their app or agent for Plures, call get_mapping_guide, read the code the way it says, then call submit_agent_map. " +
+      "Never put source code, secrets or customer data in a map.",
+  });
+
+  const TEST_NOTE = "TEST MODE: this answer is simulated; no person saw the question. It always picks the first option, so don't act on it. Use a live key for real answers.";
+
+  // Plures adds warnings when a task was created but something about it needs the caller's attention:
+  // few verified people are around so it may be slow, or the request carried a field Plures ignored.
+  const warned = (t: Task) => {
+    const w = (t as Task & { warnings?: unknown }).warnings;
+    return Array.isArray(w) && w.length ? `\nHeads up from Plures:\n${w.slice(0, 6).map((x) => `- ${String(x).slice(0, 300)}`).join("\n")}` : "";
+  };
+
+  const fmt = (t: Task) => {
+    const text = describe(t) + warned(t);
+    // Sent straight to the team, a test task still reaches real people on the developer's team.
+    if (t.mode === "test" && (t as TaskPlus).route === "team") return `TEST TASK, sent to your own team (marked as a test in their email).\n${text}`;
+    return t.mode === "test" ? `${TEST_NOTE}\n${text}` : text;
+  };
+
+  // Fields added in plures 1.5 and 1.6, read safely whatever SDK version is installed.
+  type TaskPlus = Task & {
+    route?: "verifiers" | "team"; team?: string | null; team_consensus?: { votes: number };
+    precedent?: { support: number; min_agreement: number; audited: boolean } | null;
+    escalation?: (Task["escalation"] & { reason?: string }) | null;
+    result: (NonNullable<Task["result"]> & { team?: { votes: Record<string, number>; agreement: number; voters: { lead: boolean }[]; decided_by_lead: boolean } }) | null;
+  };
+
+  type Judged = { kind?: string; format?: string; result: { contested?: boolean; mean?: number; spread?: number; reasons?: { answer: string; reason: string }[];
+    signoff?: { decision: string; signer: string; tier: string; presence_confirmed_at: string | null; reason: string | null } } | null };
+
+  // A judgment task: the panel's spread of views, a rating's average, reasons, or who signed off.
+  const describeJudgment = (task: Task) => {
+    const t = task as unknown as TaskPlus & Judged;
+    const label = (id: string | null) => t.options.find((o) => o.id === id)?.label ?? id;
+    const r = t.result;
+    if (t.status === "pending") return `Still waiting for ${t.format === "signoff" ? "the sign off" : "the panel"}. Task ${t.id}. Call get_human_answer with this task_id later.`;
+    if (t.status === "canceled") return `Task ${t.id} was canceled.`;
+    if (t.status === "expired" || !r) return `Task ${t.id} expired before ${t.format === "signoff" ? "anyone signed off. Don't take the action." : "the panel finished. Treat it as no view yet."}`;
+    if (r.signoff) {
+      const s = r.signoff;
+      return `${s.decision === "approve" ? "Approved" : "Rejected"} by a verified person (${s.tier} tier, signer ${s.signer}), confirmed with a fresh presence check${s.presence_confirmed_at ? ` at ${s.presence_confirmed_at}` : ""}. Their reason: "${s.reason ?? ""}". ${s.decision === "approve" ? "You may take the action." : "Don't take the action."} Task ${t.id}.`;
+    }
+    const votes = Object.entries(r.votes).map(([k, v]) => `${label(k)}: ${v}`).join(", ");
+    const head = r.answer === null ? `The panel tied (${votes}).` : `Most of the panel chose ${label(r.answer)}: ${Math.round(r.agreement * r.answers)} of ${r.answers}. Votes: ${votes}.`;
+    const rate = r.mean != null ? ` Average rating ${r.mean} of 5, spread ${r.spread}.` : "";
+    const split = r.contested ? " Contested: people genuinely split, so this is a close call. Weigh the reasons rather than treating the top answer as settled." : " Clear view.";
+    const why = r.reasons?.length ? `\nReasons people gave:\n${r.reasons.map((x) => `- (${label(x.answer)}) ${x.reason}`).join("\n")}` : "";
+    return `${head}${rate}${split} Task ${t.id}.${why}`;
+  };
+
+  const describe = (task: Task) => {
+    if ((task as unknown as Judged).kind === "judgment") return describeJudgment(task);
+    const t = task as TaskPlus;
+    const label = (id: string | null) => t.options.find((o) => o.id === id)?.label ?? id;
+    if (t.status === "pending" && t.escalation?.reason === "team_only")
+      return `Sent straight to ${t.team ? `your ${t.team} team` : "your team"}${(t.team_consensus?.votes ?? 1) > 1 ? `, where ${t.team_consensus!.votes} people vote` : ""}. Task ${t.id}. Call get_human_answer with this task_id later; don't act until it's decided.`;
+    if (t.status === "pending" && t.escalation)
+      return `Verified people didn't all agree, so the decision went to your team, who decide within a day. Task ${t.id}. Call get_human_answer with this task_id later; don't act until it's decided.`;
+    if (t.status === "pending")
+      return `Still waiting for people to answer. Task ${t.id}. Call get_human_answer with this task_id later.`;
+    if (t.status === "canceled") return `Task ${t.id} was canceled.`;
+    const r = t.result;
+    const votes = r ? Object.entries(r.votes).map(([k, v]) => `${label(k)}: ${v}`).join(", ") : "none";
+    if (t.status === "expired") return `Task ${t.id} expired before enough people answered. Votes so far: ${votes}. Treat this as unverified.`;
+    if ((r?.decided_by as string) === "precedent" && r?.answer)
+      return `Settled by precedent: ${label(r.answer)}. People decided ${t.precedent?.support ?? "several"} close cases this way before, with at least ${Math.round((t.precedent?.min_agreement ?? r.agreement) * 100)}% agreement. Safe to act on. Task ${t.id}.`;
+    const tv = r?.team;
+    const teamVotes = tv && tv.voters.length > 1 ? ` ${tv.voters.filter((v) => !v.lead).length} people voted, ${Math.round(tv.agreement * 100)}% agreed${tv.decided_by_lead ? ", and the lead made the final call" : ""}.` : "";
+    if (r?.decided_by === "team" && r.answer !== null && t.route === "team")
+      return `Your team decided: ${label(r.answer)}${r.reviewer && !teamVotes ? ` (${r.reviewer})` : ""}.${teamVotes} This is the final answer; act on it.${r.note && !teamVotes ? ` Their note: "${r.note}"` : ""}`;
+    if (r?.decided_by === "team" && r.answer === null && tv)
+      return `Your team didn't agree (${Object.entries(tv.votes).filter(([, n]) => n > 0).map(([k, n]) => `${label(k)}: ${n}`).join(", ")}), so there's no answer. Don't act on it; ask a person on your team directly.`;
+    if (r?.decided_by === "team" && r.answer !== null)
+      return `Your team decided: ${label(r.answer)}${r.reviewer ? ` (${r.reviewer})` : ""}, after verified people didn't all agree (${votes}). This is the final answer; act on it.${r.note ? ` Their note: "${r.note}"` : ""}`;
+    if (!r || r.answer === null) return `People were split${r?.tie ? " (a tie)" : ""}. Votes: ${votes}. Treat this as uncertain and escalate to a person on your team.`;
+    const strength = r.agreement >= 1 ? "Everyone agreed, so it is safe to act on." : `Agreement is ${Math.round(r.agreement * 100)}%, so treat it as uncertain.`;
+    return `Verified people answered: ${label(r.answer)}. ${Math.round(r.agreement * r.answers)} of ${r.answers} agreed. ${strength} Votes: ${votes}.`;
+  };
+
+  const out = (t: Task) => ({
+    content: [{ type: "text" as const, text: fmt(t) }],
+    structuredContent: { task_id: t.id, status: t.status, mode: t.mode, decided_by: t.result?.decided_by ?? null, with_team: !!t.escalation && t.status === "pending", route: (t as TaskPlus).route ?? "verifiers", answer: t.result?.answer ?? null, label: t.result?.label ?? null, agreement: t.result?.agreement ?? null, answers: t.result?.answers ?? 0, votes: t.result?.votes ?? {},
+      ...((t as unknown as Judged).kind === "judgment" ? { kind: "judgment", contested: (t as unknown as Judged).result?.contested ?? null, mean: (t as unknown as Judged).result?.mean ?? null, reasons: (t as unknown as Judged).result?.reasons ?? [], signoff: (t as unknown as Judged).result?.signoff ?? null } : {}) },
+  });
+
+  const fail = (e: unknown) => ({
+    isError: true,
+    content: [{ type: "text" as const, text: e instanceof PluresError ? `Plures said ${e.status}: ${e.message}` : `Couldn't reach Plures: ${e instanceof Error ? e.message : String(e)}` }],
+  });
+
+  const noKey = () => ({
+    isError: true,
+    content: [{ type: "text" as const, text: opts.noKeyHint ?? "No Plures API key. Set PLURES_API_KEY in this MCP server's environment, or the API key in the Plures plugin settings. A free test key is at https://plures.si/?for=developers#join" }],
+  });
+
+  // Waits for an answer, sending progress so clients that support it keep the call open.
+  async function settle(id: string, seconds: number, progress?: (n: number) => Promise<void>) {
+    const end = Date.now() + seconds * 1000;
+    let t = await plures!.tasks.retrieve(id);
+    let n = 0;
+    while (t.status === "pending" && Date.now() < end) {
+      await new Promise((r) => setTimeout(r, Math.min(3000, Math.max(0, end - Date.now()))));
+      await progress?.(++n);
+      t = await plures!.tasks.retrieve(id);
+    }
+    return t;
+  }
+
+  const progressFor = (extra: { _meta?: { progressToken?: string | number }; sendNotification: (n: any) => Promise<void> }, total: number) => {
+    const token = extra._meta?.progressToken;
+    if (token === undefined) return undefined;
+    return (n: number) => extra.sendNotification({ method: "notifications/progress", params: { progressToken: token, progress: n, total, message: "Waiting for verified people to answer" } });
+  };
+
+  const result = { task_id: z.string(), status: z.string(), mode: z.string(), route: z.string(), decided_by: z.string().nullable(), with_team: z.boolean(), answer: z.string().nullable(), label: z.string().nullable(), agreement: z.number().nullable(), answers: z.number(), votes: z.record(z.number()),
+    kind: z.string().optional(), contested: z.boolean().nullable().optional(), mean: z.number().nullable().optional(),
+    reasons: z.array(z.object({ answer: z.string(), reason: z.string() })).optional(),
+    signoff: z.object({ decision: z.string(), signer: z.string(), tier: z.string(), presence_confirmed_at: z.string().nullable(), reason: z.string().nullable() }).passthrough().nullable().optional() };
+
+  server.registerTool("ask_humans", {
+    title: "Ask verified humans",
+    description:
+      "Send a decision to ID verified people before you act on it. Several people answer independently, each confirmed with Face ID, " +
+      "and you get back the consensus answer and how strongly they agreed. Use it for judgment calls where being wrong is costly: " +
+      "evals of AI output, tone and intent, whether two things match, moderation edge cases. Send refunds, payments and other money calls with route team. Write the question so a stranger can answer it " +
+      "from the context alone, and never include secrets or more personal data than the decision needs. Live keys use prepaid credit at $0.20 per answer (clips cost more by length), or $0.05 per internal vote with route team; test keys are free and simulated.",
+    inputSchema: {
+      question: z.string().min(3).max(1000).describe("What people should decide, e.g. \"Is this customer upset?\""),
+      options: z.array(z.string().min(1).max(200)).min(2).max(8).describe("2 to 8 possible answers, e.g. [\"Yes\", \"No\"]"),
+      context: z.string().max(20000).optional().describe("The material to judge, as plain text: the AI answer and the policy it should follow, the message, the listing"),
+      image_url: z.string().url().optional().describe("An https image shown with the question"),
+      audio_url: z.string().url().optional().describe("An https recording people listen to in full before answering, such as a call your voice agent handled. Up to 3 minutes; needs media_seconds"),
+      video_url: z.string().url().optional().describe("An https video (MP4) people watch in full before answering. Up to 3 minutes; needs media_seconds. Not with audio_url"),
+      media_seconds: z.number().int().min(1).max(180).optional().describe("Length of the audio or video in seconds. Required with a clip"),
+      sensitive: z.boolean().optional().describe("Set true for violent, graphic or disturbing content, so only people who opted in see it, behind a warning"),
+      instructions: z.string().max(2000).optional().describe("Short guidance shown under the question"),
+      verifiers: z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(7), z.literal(9)]).optional().describe("How many people answer. Default 3; use 5 for higher stakes"),
+      route: z.enum(["verifiers", "team"]).optional().describe("verifiers (default) asks ID verified people first. team sends it straight to the developer's own people, for money and account decisions and confidential or policy calls; $0.05 per internal vote live"),
+      category: z.string().max(64).optional().describe("A label the developer's routing rules match on, like \"refunds\"; the rule may choose the route and team"),
+      team: z.string().max(40).optional().describe("The name of one of the developer's teams, like \"Finance\", to decide instead of the main team"),
+      team_votes: z.number().int().min(1).max(10).optional().describe("With route team: how many people on the team vote; the majority decides"),
+      app: z.string().max(40).optional().describe("Which of the developer's apps this is for, like \"support-agent\". Default: PLURES_APP, then the default app"),
+      fast: z.boolean().optional().describe("Paid speed for a decision that can't wait: served first to verified people and pushed at once, with a bonus for answers within a minute. $0.10 more per answer live. Not with route team"),
+      use_precedent: z.boolean().optional().describe("Look in the developer's judgment graph first. When people already settled cases like this (three or more close matches with the same options, all decided the same way), it's decided by precedent at once for $0.05 live; one in ten still goes to people as an audit. Not with route team"),
+      wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe(`How long to wait for the answer before returning a task_id to check later. Default 45, up to ${MAX_WAIT}`),
+    },
+    outputSchema: result,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ wait_seconds, ...params }, extra) => {
+    if (!plures) return noKey();
+    try {
+      const wait = wait_seconds ?? 45;
+      const app = params.app ?? APP;
+      const created = await plures.tasks.create({ ...params, ...(app ? { app } : {}), metadata: { source: "mcp" } } as Parameters<typeof plures.tasks.create>[0]);
+      const t = created.status === "pending" && wait > 0 ? await settle(created.id, wait, progressFor(extra, Math.ceil(wait / 3))) : created;
+      return out(t);
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("ask_judgment", {
+    title: "Ask people for their judgment",
+    description:
+      "Ask a panel of ID verified people for their honest view when there's no right answer to check: which of two replies, designs, headlines or model answers is better, " +
+      "whether a customer would accept a reply or decision, how well something meets a brief (1 to 5), or whether a design, video or generated image has a flaw. " +
+      "You get the spread of views, a contested flag when people genuinely split, and a sample of one line reasons. " +
+      "format signoff (coming soon; test keys now) asks one top rated verified person to approve or reject an action after a fresh Face ID or Touch ID check, with a written reason: use it before an action someone must be accountable for. " +
+      "Live keys use prepaid credit at $0.20 per answer (a panel of 5 is $1.00) or $1.00 per sign off; test keys are free and simulated.",
+    inputSchema: {
+      question: z.string().min(3).max(1000).describe("The question, e.g. \"Which reply would you rather receive?\""),
+      format: z.enum(["accept", "compare", "rate", "flaws", "signoff", "custom"]).optional().describe("accept (default): yes, yes with changes, no. compare: A or B (send a and b). rate: 1 to 5. flaws: looks right or has a flaw. signoff: one Trusted person approves or rejects. custom: send options"),
+      context: z.string().max(20000).optional().describe("What people judge, or the shared setup for a comparison"),
+      a: z.string().max(8000).optional().describe("compare: version A as text"),
+      b: z.string().max(8000).optional().describe("compare: version B as text"),
+      a_image_url: z.string().url().optional().describe("compare: version A as an https image"),
+      b_image_url: z.string().url().optional().describe("compare: version B as an https image"),
+      a_clip_url: z.string().url().optional().describe("compare: version A as an https video (MP4) or recording, played through before answering. Needs a_seconds"),
+      b_clip_url: z.string().url().optional().describe("compare: version B as an https video (MP4) or recording. Needs b_seconds"),
+      a_seconds: z.number().int().min(1).max(180).optional().describe("Length of a_clip_url in seconds"),
+      b_seconds: z.number().int().min(1).max(180).optional().describe("Length of b_clip_url in seconds"),
+      clip_kind: z.enum(["video", "audio"]).optional().describe("Whether a_clip_url and b_clip_url are video (default) or audio"),
+      image_url: z.string().url().optional().describe("An https image to judge, like a design or a generated image"),
+      rubric: z.string().max(2000).optional().describe("What good looks like, in the developer's words, e.g. \"Warm and clear, never pushy\""),
+      options: z.array(z.string().min(1).max(200)).min(2).max(8).optional().describe("custom only: 2 to 8 answers"),
+      reasons: z.enum(["none", "sample", "all"]).optional().describe("Whether people add a one line reason. Default sample (about one in four); sign offs always do"),
+      verifiers: z.union([z.literal(1), z.literal(3), z.literal(5), z.literal(7), z.literal(9)]).optional().describe("Panel size. Default 5. A sign off is always 1"),
+      app: z.string().max(40).optional().describe("Which of the developer's apps this is for. Default: PLURES_APP, then the default app"),
+      wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe(`How long to wait before returning a task_id to check later. Default 45, up to ${MAX_WAIT}`),
+    },
+    outputSchema: result,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ wait_seconds, a, b, a_image_url, b_image_url, a_clip_url, b_clip_url, a_seconds, b_seconds, clip_kind, format, ...params }, extra) => {
+    if (!plures) return noKey();
+    try {
+      const wait = wait_seconds ?? 45;
+      const app = params.app ?? APP;
+      const key = clip_kind === "audio" ? "audio_url" : "video_url";
+      const side = (text?: string, image_url?: string, clip?: string, seconds?: number) => (image_url || clip
+        ? { ...(text ? { text } : {}), ...(image_url ? { image_url } : {}), ...(clip ? { [key]: clip, media_seconds: seconds } : {}) } : text);
+      const compare = format === "compare" ? { a: side(a, a_image_url, a_clip_url, a_seconds), b: side(b, b_image_url, b_clip_url, b_seconds) } : undefined;
+      const created = await plures.tasks.create({ ...params, kind: "judgment", ...(format ? { format } : {}), ...(compare ? { compare } : {}), ...(app ? { app } : {}),
+        ...(format === "signoff" ? { verifiers: undefined } : {}), metadata: { source: "mcp" } } as unknown as Parameters<typeof plures.tasks.create>[0]);
+      const t = created.status === "pending" && wait > 0 ? await settle(created.id, wait, progressFor(extra, Math.ceil(wait / 3))) : created;
+      return out(t);
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("audit_my_agent", {
+    title: "Audit the agent's past decisions",
+    description: "Sends a Plures audit: up to 50 decisions an AI agent already made, graded so the developer sees which were wrong. The account's first audit is free. After it has finished, each further audit is paid from the account's credit when it is sent: $0.20 a decision, or $0.50 for kind judgment, so tell the developer the cost and get their yes before sending a second one. One audit at a time. Works with a test or live key. " +
+      "Each row is input (what the agent saw, including the policy it should follow) and decision (what it did). Gather them from the developer's logs, database or test fixtures; leave out names and other private details (emails, phones and card numbers are removed anyway). " +
+      "kind check (default) asks whether each call was right (the dashboard calls it the accuracy audit); kind judgment asks whether a customer would be happy with it (the quality audit). Text only: to have an image, video or audio clip judged, the developer sends a quality audit from plures.si/dashboard/audit with a media column. A person at Plures reviews it before anyone grades it. Use get_audit_report to read the results.",
+    inputSchema: {
+      rows: z.array(z.object({ input: z.string().min(1).max(2000), decision: z.string().min(1).max(2000) })).min(1).max(50).optional().describe("The decisions: what the agent saw and what it did"),
+      csv: z.string().max(400000).optional().describe("Instead of rows: CSV text with a header row and columns input and decision"),
+      kind: z.enum(["check", "judgment"]).optional().describe("check (default): was each call right. judgment: would a customer be happy with it"),
+      about: z.string().max(1000).optional().describe("What the agent does, in a sentence, e.g. \"Answers support tickets and can refund up to $50\""),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    if (!p.rows?.length && !p.csv) return { content: [{ type: "text" as const, text: "Send rows (input and decision) or csv." }], isError: true };
+    try {
+      const a = await api("POST", "/api/v1/audits", p) as { id: string; kind: string; rows: number; answers_per_row: number; paid?: boolean; price_cents?: number; removed?: Record<string, number>; dropped?: number; dashboard_url: string };
+      const cost = a.paid && a.price_cents ? `$${(a.price_cents / 100).toFixed(2)} was taken from the account's credit. ` : "";
+      const removed = Object.values(a.removed ?? {}).reduce((n, x) => n + x, 0);
+      return { content: [{ type: "text" as const, text: `Sent ${a.rows} decisions to Plures for ${a.paid ? "an" : "a free"} ${a.kind === "judgment" ? "judgment audit (would customers be happy with it)" : "audit (was each call right)"}. ${cost}` +
+        `${removed ? `${removed} personal details were removed. ` : ""}${a.dropped ? `Only the first 50 rows were kept. ` : ""}` +
+        `A person at Plures reviews it first, then it is graded. Audit ${a.id}. Check it with get_audit_report or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("get_audit_report", {
+    title: "Read the audit report",
+    description: "Reads the developer's Plures audit: where it is, and once people are answering, how many decisions they called right, wrong, unclear or split, with the ones they disagreed with listed first. " +
+      "For judgment audits: right means people would be happy with it, wrong means not happy, unclear means it needs changes.",
+    inputSchema: { audit_id: z.string().max(60).optional().describe("Which audit. Default: the account's audit") },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async ({ audit_id }) => {
+    if (!KEY) return noKey();
+    try {
+      const a = await api("GET", audit_id ? `/api/v1/audits/${encodeURIComponent(audit_id)}` : "/api/v1/audits") as { id: string; kind: string; status: string; rows: number; dashboard_url: string; mode?: string;
+        summary: { total: number; graded: number; right: number; wrong: number; unclear: number; split: number; waiting: number; human_reviewed?: number; system_graded?: number; sample?: { checked: number; agreed: number } | null } | null;
+        data: { n: number; input: string; decision: string; verdict: string; label: string; votes: Record<string, number> }[] };
+      if (!a.summary) return { content: [{ type: "text" as const, text: a.status === "declined" ? `Audit ${a.id} was declined. Write to hello@plures.si.` : `Audit ${a.id} (${a.rows} decisions) is with a person at Plures for review; nobody has graded it yet. Check again later or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
+      const s = a.summary;
+      const j = a.kind === "judgment";
+      const head = `${a.status === "ready" ? "Finished" : `In progress: ${s.graded} of ${s.total} graded`}. ` +
+        (j ? `Happy with it: ${s.right}. Not happy: ${s.wrong}. Needs changes: ${s.unclear}. Split: ${s.split}.` : `Right: ${s.right}. Wrong: ${s.wrong}. Can't tell: ${s.unclear}. Split: ${s.split}.`);
+      // A hybrid audit: say how much a person graded and how much the system did, so nobody reads it as a panel on every row.
+      const how = a.mode === "hybrid" && s.human_reviewed != null
+        ? `Graded the hybrid way: a person reviewed ${s.human_reviewed} of the decisions and the system graded the other ${s.system_graded ?? 0}.${s.sample?.checked ? ` On the ${s.sample.checked} the system was sure of that a person checked anyway, the person agreed on ${s.sample.agreed}.` : ""}`
+        : null;
+      const look = a.data.filter((r) => r.verdict === "wrong" || r.verdict === "split").slice(0, 15)
+        .map((r) => `- Row ${r.n}, ${r.label}: saw "${r.input.slice(0, 160)}", did "${r.decision.slice(0, 120)}"`);
+      return { content: [{ type: "text" as const, text: [head, ...(how ? [how] : []), ...(look.length ? [j ? "Where people weren't happy or split:" : "Where people disagreed with the agent or split:", ...look] : []), `Full report: ${a.dashboard_url}`].join("\n") }], structuredContent: a as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("find_precedents", {
+    title: "Find how people decided similar cases",
+    description: "Searches the developer's judgment graph: past decisions people made on cases like this one, closest first, with the answer and how strongly they agreed. " +
+      "Returns a suggestion only when the case is settled: several close cases with the same options, all decided the same way with strong agreement. Free. " +
+      "To act on a settled case and have it recorded and billed as a decision, call ask_humans with use_precedent instead.",
+    inputSchema: {
+      question: z.string().min(3).max(2000).describe("The decision, worded as you would ask it"),
+      context: z.string().max(8000).optional().describe("The material to judge, as plain text"),
+      options: z.array(z.string().min(1).max(200)).min(2).max(8).optional().describe("The possible answers; a suggestion needs past cases with the same options"),
+      category: z.string().max(80).optional().describe("Only cases with this category"),
+      app: z.string().max(40).optional().describe("Only this app. Default: PLURES_APP, then all apps"),
+      limit: z.number().int().min(1).max(20).optional().describe("How many past decisions to return. Default 5"),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    const app = p.app ?? APP;
+    try {
+      const r = await api("POST", "/api/v1/precedents", { ...p, ...(app ? { app } : {}) }) as { considered: number; mode: string;
+        suggestion: { label: string | null; answer: string; support: number; min_agreement: number } | null;
+        data: { task_id: string; question: string; label: string | null; answer: string | null; agreement: number | null; similarity: number; decided_at: string }[] };
+      const lines = r.data.map((d) => `- ${Math.round(d.similarity * 100)}% similar, ${d.decided_at.slice(0, 10)}: "${d.question}" was decided ${d.label ?? d.answer ?? "with no answer"}${d.agreement != null ? ` (${Math.round(d.agreement * 100)}% agreed)` : ""}. Task ${d.task_id}.`);
+      const head = r.suggestion
+        ? `Settled: people decided ${r.suggestion.support} close cases ${r.suggestion.label ?? r.suggestion.answer}, with at least ${Math.round(r.suggestion.min_agreement * 100)}% agreement. ask_humans with use_precedent will decide it this way for $0.05.`
+        : r.data.length ? "Not settled, so ask people. The closest past decisions:" : `No similar past decisions among ${r.considered} in ${r.mode} mode. Ask people.`;
+      return { content: [{ type: "text" as const, text: [head, ...(r.suggestion && lines.length ? ["The closest past decisions:"] : []), ...lines].join("\n") }], structuredContent: r as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  type TRule = { id: string; text: string; category: string | null };
+  type TExample = { id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[] };
+
+  type Measure = { key: string; label: string; unit: "ratio" | "seconds" | "cents"; value: number | null; n: number; counts: string; early: boolean; before: { value: number | null; n: number }; trend: string | null };
+  type Card = { mode: string; enough: number; measures: Measure[]; taste_checks: { checks: number; held: number };
+    settings: Record<string, { value: number; default: number; label: string }>; suggestion: { question: string; why: string } | null };
+  const shown = (m: Measure, v: number | null) => v == null ? "no data"
+    : m.unit === "ratio" ? `${Math.round(v * 100)}%` : m.unit === "cents" ? `$${(v / 100).toFixed(2)}`
+    : v < 90 ? `${Math.round(v)} sec` : v < 5400 ? `${Math.round(v / 60)} min` : `${Math.round(v / 360) / 10} h`;
+
+  server.registerTool("get_scorecard", {
+    title: "Is it working",
+    description: "Returns whether precedents and taste are working for this account: precedent accuracy from spot checks, share of decisions answered by precedent, decisions right the first time, taste false alarms, and the time and cost of a decision. " +
+      "Each number comes with how many decisions it rests on; one marked early is a hint, not a fact. Also shows the precedent settings and any change Plures is suggesting. " +
+      "Read only: a person changes settings and answers suggestions in the dashboard. Free.",
+    inputSchema: { app: z.string().max(80).optional().describe("One app's decisions only. Leave out for the whole account") },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    try {
+      const r = await api("GET", `/api/v1/scorecard${p.app ? `?app=${encodeURIComponent(p.app)}` : ""}`) as Card;
+      const lines = r.measures.map((m) => `- ${m.label}: ${shown(m, m.value)}, from ${m.n} ${m.counts}${m.early && m.n > 0 ? ` (early: under ${r.enough})` : ""}${m.before.n ? `; ${shown(m, m.before.value)} in the 30 days before` : ""}${m.trend ? `; ${m.trend}` : ""}`);
+      // Shown the way the dashboard shows them: a count for matching decisions, a percentage for the rest.
+      const as = (k: string, v: number) => (k === "support" ? String(v) : `${Math.round(v * 100)}%`);
+      const set = Object.entries(r.settings).map(([k, x]) => `- ${x.label}: ${as(k, x.value)}${x.value !== x.default ? ` (default ${as(k, x.default)})` : ""}`);
+      const text = [
+        `Last 30 days, ${r.mode} mode:`, ...lines, "", "Settings:", ...set,
+        ...(r.suggestion ? ["", `Plures is suggesting a change, waiting for a person: ${r.suggestion.question}`, r.suggestion.why, "A person answers this at https://plures.si/dashboard/graph#settings or in the Decisions app."] : []),
+      ].join("\n");
+      return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("get_taste", {
+    title: "Read the team's taste",
+    description: "Returns what this team wants its agents' work to look like: the standing rules in force and recent examples of what they like and don't. " +
+      "Call it before producing work the team will judge, and follow the rules. Pass category for one kind of work; rules that apply to everything are always included. Free.",
+    inputSchema: {
+      category: z.string().max(80).optional().describe("The kind of work, as the team names it: social, logos, support replies"),
+      examples: z.number().int().min(0).max(50).optional().describe("How many recent examples to include. Default 12"),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    try {
+      const q = new URLSearchParams();
+      if (p.category) q.set("category", p.category);
+      if (p.examples != null) q.set("examples", String(p.examples));
+      const r = await api("GET", `/api/v1/taste${q.size ? `?${q}` : ""}`) as { rules: TRule[]; examples: TExample[] };
+      const rules = r.rules.map((x) => `- ${x.text}${x.category ? ` (${x.category})` : ""}`);
+      const ex = r.examples.map((e) => `- ${e.verdict === "like" ? "Liked" : "Not liked"}${e.category ? ` (${e.category})` : ""}: ${e.description ?? e.text?.slice(0, 200) ?? e.image_url ?? ""}${e.note ? ` Their note: "${e.note}"` : ""}`);
+      const text = [
+        rules.length ? "The team's standing rules. Follow them:" : "This team has no rules yet for this kind of work.", ...rules,
+        ...(ex.length ? ["", "Examples they gave (leanings, not rules):", ...ex] : []),
+      ].join("\n");
+      return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("check_against_taste", {
+    title: "Check a draft against the team's taste",
+    description: "Holds a draft up against the team's rules and examples before a person sees it, and says which rules it breaks and why. " +
+      "Send the text, a public https image link, or both. Fix what it reports, then ask a person if the work still needs one. Free.",
+    inputSchema: {
+      draft: z.string().max(12000).optional().describe("The text of the draft"),
+      image_url: z.string().url().optional().describe("A public https link to the image: PNG, JPEG, WebP or GIF up to 4 MB"),
+      category: z.string().max(80).optional().describe("The kind of work, if you know the team's name for it. Optional and need not be exact: Plures reads the draft and applies the rules of every category it fits"),
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    if (!p.draft && !p.image_url) return { content: [{ type: "text" as const, text: "Send draft, image_url, or both." }], isError: true };
+    try {
+      const r = await api("POST", "/api/v1/taste/check", p) as { pass: boolean; checked: boolean; summary: string; violations: { rule: string; why: string }[]; suggestions: string[]; categories?: { category: string; by: string; fit: number }[] };
+      const text = !r.checked ? `Not checked: ${r.summary} This is not approval.`
+        : [r.pass ? `Passes the team's rules. ${r.summary}` : `Breaks ${r.violations.length} of the team's rules. ${r.summary}`,
+          ...r.violations.map((v) => `- Rule: "${v.rule}" Why: ${v.why}`),
+          ...(r.suggestions.length ? ["Suggestions:", ...r.suggestions.map((x) => `- ${x}`)] : []),
+          ...(r.categories?.length ? [`Checked as: ${r.categories.map((c) => (c.by === "label" ? c.category : `${c.category} (${Math.round(c.fit * 100)}% sure)`)).join(", ")}, plus the rules for all work.`] : [])].join("\n");
+      return { content: [{ type: "text" as const, text }], structuredContent: r as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("add_taste_rule", {
+    title: "Save a standing rule",
+    description: "Saves a standing rule for this team's agents, in force at once. Use it only when the user states a preference that should hold from now on, and confirm the wording with them first. One plain sentence.",
+    inputSchema: {
+      text: z.string().min(8).max(400).describe("The rule, as one plain sentence an agent can follow"),
+      category: z.string().max(80).optional().describe("The kind of work it applies to. Leave out to apply to everything"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    try {
+      const r = await api("POST", "/api/v1/taste/rules", p) as TRule;
+      return { content: [{ type: "text" as const, text: `Saved as a rule${r.category ? ` for ${r.category}` : " for all work"}: "${r.text}" (${r.id}). The team can retire it on the Taste page of their dashboard.` }], structuredContent: r as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("add_taste_example", {
+    title: "Save an example of what the team likes or doesn't",
+    description: "Saves something the team likes or doesn't, so their agents can take it into account: an image by public https link, or a piece of text, with an optional note on why. Plures describes and tags it.",
+    inputSchema: {
+      verdict: z.enum(["like", "dislike"]).describe("Whether the team likes it or not"),
+      image_url: z.string().url().optional().describe("A public https link to the image"),
+      text: z.string().max(6000).optional().describe("The text, when the example is writing"),
+      note: z.string().max(600).optional().describe("What they like or dislike about it, in their words"),
+      category: z.string().max(80).optional().describe("The kind of work it is an example of"),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    if (!p.image_url && !p.text) return { content: [{ type: "text" as const, text: "An example needs image_url or text." }], isError: true };
+    try {
+      const r = await api("POST", "/api/v1/taste/examples", p) as TExample;
+      return { content: [{ type: "text" as const, text: `Saved as something the team ${r.verdict === "like" ? "likes" : "doesn't like"} (${r.id}).` }], structuredContent: r as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("get_human_answer", {
+    title: "Get the human answer",
+    description: "Check on a task sent with ask_humans and return the verified people's answer once it's ready.",
+    inputSchema: {
+      task_id: z.string().describe("The task_id ask_humans returned"),
+      wait_seconds: z.number().int().min(0).max(MAX_WAIT).optional().describe("How long to wait if it's still pending. Default 0"),
+    },
+    outputSchema: result,
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async ({ task_id, wait_seconds }, extra) => {
+    if (!plures) return noKey();
+    try { return out(await settle(task_id, wait_seconds ?? 0, progressFor(extra, Math.ceil((wait_seconds ?? 0) / 3)))); } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("cancel_human_task", {
+    title: "Cancel a human task",
+    description: "Cancel a task that is still waiting for answers, for example when the decision no longer matters. Answers already given are still billed.",
+    inputSchema: { task_id: z.string().describe("The task_id ask_humans returned") },
+    outputSchema: result,
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+  }, async ({ task_id }) => {
+    if (!plures) return noKey();
+    try { return out(await plures.tasks.cancel(task_id)); } catch (e) { return fail(e); }
+  });
+
+  // Agent maps use the API directly, so this server works with any installed SDK version.
+  async function api(method: string, path: string, body?: unknown): Promise<any> {
+    const r = await fetch(BASE + path, { method, headers: { authorization: `Bearer ${KEY}`, "user-agent": opts.userAgent ?? `plures-mcp/${VERSION}`, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const data: any = await r.json().catch(() => ({}));
+    if (!r.ok) throw new PluresError(data?.error?.message ?? `HTTP ${r.status}`, r.status, data?.error?.type ?? "api_error");
+    return data;
+  }
+
+  type MapOut = { app: string; version: number; name?: string | null; url?: string; nodes: { id: string; label: string; kind: string; risk?: string | null }[];
+    checkpoints: { id: string; at: string; why: string; category: string; status: string; stats?: { tasks: number; agreement: number | null; to_team: number; internal: number } }[] };
+
+  const describeMap = (m: MapOut) => {
+    const label = (id: string) => m.nodes.find((n) => n.id === id)?.label ?? id;
+    const actions = m.nodes.filter((n) => n.kind === "action");
+    const checked = new Set(m.checkpoints.filter((c) => c.status !== "dismissed").map((c) => c.at));
+    const lines = m.checkpoints.map((c) => `- ${label(c.at)} (${c.category}): ${c.status}${c.stats?.tasks ? `, ${c.stats.tasks} checks in 30 days${c.stats.agreement != null ? `, ${Math.round(c.stats.agreement * 100)}% agreement` : ""}` : ""}. ${c.why}`);
+    const open = actions.filter((a) => a.risk === "high" && !checked.has(a.id)).map((a) => `- ${a.label}: high risk, no check`);
+    return [`${m.name ?? m.app}, version ${m.version}: ${m.nodes.length} steps, ${actions.length} actions with consequences.`, ...lines, ...open,
+      m.url ? `The developer can see it and try each check at ${m.url}` : ""].filter(Boolean).join("\n");
+  };
+
+  server.registerTool("get_mapping_guide", {
+    title: "Get the Plures mapping guide",
+    description: "Returns the steps for mapping the developer's AI agent for Plures: how to find its steps and actions, where to suggest a person checks, and how to draft each check. Call this first when asked to map an app for Plures.",
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async () => {
+    try { const r = await fetch(`${BASE}/api/v1/map_guide`); return { content: [{ type: "text" as const, text: await r.text() }] }; } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("submit_agent_map", {
+    title: "Send an agent map to Plures",
+    description: "Uploads the map you made with get_mapping_guide: nodes, edges and checkpoints with drafted checks. Never include source code, secrets or customer data. If Plures names a problem, fix it and send again.",
+    inputSchema: {
+      map: z.object({
+        name: z.string().optional(), summary: z.string().optional(),
+        source: z.object({ repo: z.string().optional(), commit: z.string().optional(), tool: z.string().optional() }).optional(),
+        nodes: z.array(z.record(z.any())), edges: z.array(z.record(z.any())), checkpoints: z.array(z.record(z.any())),
+      }).describe("The agent map, as the guide describes"),
+      app: z.string().optional().describe("The app id, like support-agent. Default: the PLURES_APP environment variable, then the account's default app"),
+    },
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ map, app }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try { return { content: [{ type: "text" as const, text: describeMap(await api("PUT", `/api/v1/apps/${encodeURIComponent(id)}/map`, map)) }] }; } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("get_agent_map", {
+    title: "Get an agent map",
+    description: "Returns an app's agent map from Plures: its checkpoints, which are added, and live numbers for each (checks in 30 days, agreement, how many went to the team).",
+    inputSchema: { app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app") },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async ({ app }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try {
+      const m = await api("GET", `/api/v1/apps/${encodeURIComponent(id)}/map`);
+      if (!m.version) return { content: [{ type: "text" as const, text: `${id} has no map yet. Call get_mapping_guide and follow it.` }] };
+      return { content: [{ type: "text" as const, text: describeMap(m) }] };
+    } catch (e) { return fail(e); }
+  });
+
+
+  return server;
+}
