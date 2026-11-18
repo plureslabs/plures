@@ -24,6 +24,22 @@ Get a free test key at [plures.si](https://plures.si/?for=developers#join), then
 
 Claude Code: `claude mcp add plures --env PLURES_API_KEY=pk_test_... -- npx -y plures-mcp`
 
+### Hosted (connect by URL)
+
+The same tools are hosted at `https://plures.si/mcp` (Streamable HTTP). Send your key as a bearer token; nothing to install or run. Use it from the Claude API's MCP connector, the Claude Agent SDK, Claude Code, or any client that connects to a remote MCP server.
+
+Claude Code: `claude mcp add --transport http plures https://plures.si/mcp --header "Authorization: Bearer pk_test_..."`
+
+Claude API (MCP connector):
+
+```json
+"mcp_servers": [{ "type": "url", "url": "https://plures.si/mcp", "name": "plures", "authorization_token": "pk_test_..." }]
+```
+
+Claude Agent SDK and other clients: `{ "type": "http", "url": "https://plures.si/mcp", "headers": { "Authorization": "Bearer pk_test_..." } }`. Add an `X-Plures-App` header to send everything to one app.
+
+Embedding the tools in your own server: `import { createServer } from "plures-mcp/server"` returns an `McpServer` with every tool, for any transport.
+
 A `pk_test_` key answers instantly with a simulated result (always the first option, clearly marked as a test), so you can try the flow for free. A `pk_live_` key sends tasks to real verified people and is paid from prepaid credit at $0.20 per answer, more for recordings and videos by length. If credit runs out, the tool says so; add credit or turn on auto top up at plures.si/dashboard/billing.
 
 ## Tools
