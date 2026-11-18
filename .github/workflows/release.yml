@@ -40,10 +40,14 @@ jobs:
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "plures-mcp@$V" version >/dev/null 2>&1; then echo "plures-mcp@$V is already published"; exit 0; fi
-          # Build against this commit's SDK, which may still be waiting for approval.
-          (cd ../js && npm pack --silent)
-          npm install --no-audit --no-fund --no-save ../js/plures-*.tgz
           npm install --no-audit --no-fund
+          # Build against this commit's SDK when it is still waiting for approval (built, so its
+          # types are there for the declarations); otherwise the published one from npm.
+          SDK=$(node -p "require('../js/package.json').version")
+          if ! npm view "plures@$SDK" version >/dev/null 2>&1; then
+            (cd ../js && npm install --no-audit --no-fund && npm run build && npm pack --silent)
+            npm install --no-audit --no-fund --no-save ../js/plures-*.tgz
+          fi
           npm stage publish --access public
       - name: Approve on npm
         run: echo "Staged. Approve each package at https://www.npmjs.com (Settings, or npm stage list) to publish it."
