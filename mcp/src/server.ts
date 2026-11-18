@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-export const VERSION = "1.12.0";
+export const VERSION = "1.13.0";
 
 export type ServerOptions = {
   /** A Plures API key (pk_test_ or pk_live_). Without one, every tool explains how to get one. */
@@ -47,6 +47,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
       "Sign offs (ask_judgment with format signoff) are coming soon: live keys get an error for now. " +
       "When the user asks to map their app or agent for Plures, call get_mapping_guide, read the code the way it says, then call submit_agent_map. " +
+      "When the user wants a person on a step the map didn't flag, offer add_check; to undo changes to the map, get_map_versions then restore_map_version; to steer the next map, set_map_focus. " +
       "Never put source code, secrets or customer data in a map.",
   });
 
@@ -501,11 +502,20 @@ export function createServer(opts: ServerOptions = {}): McpServer {
 
   server.registerTool("get_mapping_guide", {
     title: "Get the Plures mapping guide",
-    description: "Returns the steps for mapping the developer's AI agent for Plures: how to find its steps and actions, where to suggest a person checks, and how to draft each check. Call this first when asked to map an app for Plures.",
-    inputSchema: {},
+    description: "Returns the steps for mapping the developer's AI agent for Plures: how to find its steps and actions, where to suggest a person checks, and how to draft each check, plus the areas the developer asked the map to look at too. Call this first when asked to map an app for Plures.",
+    inputSchema: { app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app") },
     annotations: { readOnlyHint: true, openWorldHint: true },
-  }, async () => {
-    try { const r = await fetch(`${BASE}/api/v1/map_guide`); return { content: [{ type: "text" as const, text: await r.text() }] }; } catch (e) { return fail(e); }
+  }, async ({ app }) => {
+    try {
+      // With a key, the app's own guide (with its Map also note); otherwise, or if that fails, the public one.
+      if (KEY) {
+        const id = app ?? APP ?? "default";
+        const r = await fetch(`${BASE}/api/v1/apps/${encodeURIComponent(id)}/map_guide`, { headers: { authorization: `Bearer ${KEY}`, "user-agent": opts.userAgent ?? `plures-mcp/${VERSION}` } }).catch(() => null);
+        if (r?.ok) return { content: [{ type: "text" as const, text: await r.text() }] };
+      }
+      const r = await fetch(`${BASE}/api/v1/map_guide`);
+      return { content: [{ type: "text" as const, text: await r.text() }] };
+    } catch (e) { return fail(e); }
   });
 
   server.registerTool("submit_agent_map", {
@@ -524,6 +534,74 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     if (!KEY) return noKey();
     const id = app ?? APP ?? "default";
     try { return { content: [{ type: "text" as const, text: describeMap(await api("PUT", `/api/v1/apps/${encodeURIComponent(id)}/map`, map)) }] }; } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("add_check", {
+    title: "Add your own check to the agent map",
+    description: "Puts a person in front of any step of an app's agent map, including steps the map didn't flag. It goes live at once (tasks the agent sends with its category follow it) and stays when the app is mapped again. Call get_agent_map first to see the step ids. Ask the user before adding one.",
+    inputSchema: {
+      at: z.string().describe("The id of the step (node) the check sits at"),
+      title: z.string().max(60).describe("A short name, like Check emails to customers. The category is made from it"),
+      question: z.string().describe("What people decide, answerable from what they're shown"),
+      options: z.array(z.string()).min(2).max(8).describe("2 to 8 answers, the one that lets the agent go ahead first"),
+      route: z.enum(["verifiers", "team"]).optional().describe("verifiers (default) or team, for the developer's own people"),
+      why: z.string().optional().describe("One sentence on what goes wrong without a person"),
+      show: z.array(z.string()).optional().describe("The fields of the agent's data people see"),
+      app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app"),
+    },
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true },
+  }, async ({ app, ...check }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try {
+      const m = await api("POST", `/api/v1/apps/${encodeURIComponent(id)}/map/checkpoints`, check);
+      return { content: [{ type: "text" as const, text: `Added ${check.title} (category ${m.checkpoint}). It's live: tasks the agent sends with category ${m.checkpoint} follow it.\n${describeMap(m)}` }] };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("get_map_versions", {
+    title: "List versions of the agent map",
+    description: "Lists the kept versions of an app's agent map, newest first: each new map of the code and each change to a check (added, turned off, edited, added by the team), with who and how many checks were on. Use it to find a version to restore.",
+    inputSchema: { app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app"), limit: z.number().int().min(1).max(100).optional() },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async ({ app, limit }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try {
+      const r = await api("GET", `/api/v1/apps/${encodeURIComponent(id)}/map/versions${limit ? `?limit=${limit}` : ""}`);
+      const lines = (r.data as { version: number; created_at: string; what: string; by: string | null; checks_on: number; current: boolean }[])
+        .map((v) => `- Version ${v.version}${v.current ? " (current)" : ""}: ${v.what}${v.by ? `, by ${v.by}` : ""}, ${v.created_at.slice(0, 16).replace("T", " ")} UTC, ${v.checks_on} checks on`);
+      return { content: [{ type: "text" as const, text: lines.length ? lines.join("\n") : `${id} has no map yet.` }], structuredContent: r };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("restore_map_version", {
+    title: "Restore a version of the agent map",
+    description: "Makes an older version of an app's agent map current again, which checks are on and their routing included. It is saved as a new version, so it can be undone the same way. Changes which decisions go to people: confirm with the user first.",
+    inputSchema: { version: z.number().int().min(1).describe("The version to bring back, from get_map_versions"), app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app") },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  }, async ({ version, app }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try {
+      const m = await api("POST", `/api/v1/apps/${encodeURIComponent(id)}/map/versions/${version}/restore`);
+      const warn = Array.isArray(m.warnings) && m.warnings.length ? `\nHeads up: ${m.warnings.join(" ")}` : "";
+      return { content: [{ type: "text" as const, text: `Restored version ${version}.${warn}\n${describeMap(m)}` }] };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("set_map_focus", {
+    title: "Tell the next map where else to look",
+    description: "Sets an app's Map also note: the parts of the app the next map should look at too, even if they seem low risk (like refund emails, account deletion, the nightly payout job). get_mapping_guide and npx plures map include it. Send an empty string to clear it.",
+    inputSchema: { focus: z.string().max(1000).describe("Where to look, in plain words"), app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app") },
+    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+  }, async ({ focus, app }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try {
+      const r = await api("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, { map_focus: focus.trim() ? focus : null });
+      return { content: [{ type: "text" as const, text: r.map_focus ? `Saved. The next map of ${id} also looks at: ${r.map_focus}` : `Cleared the Map also note for ${id}.` }] };
+    } catch (e) { return fail(e); }
   });
 
   server.registerTool("get_agent_map", {

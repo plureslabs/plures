@@ -12,7 +12,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.30.1"
+__version__ = "1.31.0"
+
+_UNSET = object()  # a keyword argument left out, as opposed to None
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
 
 
@@ -251,10 +253,13 @@ class Plures:
     def get_app(self, app_id):
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app_id))
 
-    def update_app(self, app_id, name=None, id=None, default=None, archived=None):
+    def update_app(self, app_id, name=None, id=None, default=None, archived=None, map_focus=_UNSET):
         """Renames an app, changes its id (its tasks move with it), makes it the default (default=True),
-        or archives it (archived=True) and restores it (archived=False)."""
+        or archives it (archived=True) and restores it (archived=False). map_focus (Map also) names the
+        parts of the app the next map should look at too; map_focus=None clears it."""
         body = {k: v for k, v in {"name": name, "id": id, "default": default, "archived": archived}.items() if v is not None}
+        if map_focus is not _UNSET:
+            body["map_focus"] = map_focus
         return self._req("PATCH", "/api/v1/apps/" + urllib.parse.quote(app_id), body)
 
     def archive_app(self, app_id):
@@ -269,10 +274,30 @@ class Plures:
         """Deletes an app with no tasks. Archive one that has them."""
         return self._req("DELETE", "/api/v1/apps/" + urllib.parse.quote(app_id))
 
-    def map_guide(self):
-        """The steps a coding agent follows to map an app and draft its checks, as markdown."""
+    def map_guide(self, app=None):
+        """The steps a coding agent follows to map an app and draft its checks, as markdown. With an app,
+        that app's guide: the same plus its Map also note."""
+        if app:
+            req = urllib.request.Request(self.base + "/api/v1/apps/" + urllib.parse.quote(app) + "/map_guide",
+                                         headers={"Authorization": "Bearer " + self.api_key, "User-Agent": "plures-python/" + __version__})
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                return r.read().decode()
         with urllib.request.urlopen(self.base + "/api/v1/map_guide", timeout=self.timeout) as r:
             return r.read().decode()
+
+    def add_check(self, app, at, title, question, options, route=None, why=None, show=None):
+        """Adds your own check at any step of the map (at: the node id; options: the go ahead answer first).
+        It goes live at once and stays when the app is mapped again."""
+        body = {k: v for k, v in {"at": at, "title": title, "question": question, "options": options, "route": route, "why": why, "show": show}.items() if v is not None}
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/map/checkpoints", body)
+
+    def map_versions(self, app, limit=None):
+        """The kept versions of an app's map (the last 100), newest first: each new map and each change to a check."""
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app) + "/map/versions" + ("?limit=" + str(int(limit)) if limit else ""))
+
+    def restore_map_version(self, app, version):
+        """Makes an older version of the map current again, checks and routing included, as a new version."""
+        return self._req("POST", "/api/v1/apps/" + urllib.parse.quote(app) + "/map/versions/" + str(int(version)) + "/restore")
 
     def get_map(self, app):
         """An app's latest agent map, with live numbers for each checkpoint."""

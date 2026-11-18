@@ -81,7 +81,9 @@ Set `route: "team"` to send a decision straight to your own team instead of veri
 
 **`cancel_human_task`**: cancel a task that no longer matters.
 
-**`get_mapping_guide`**, **`submit_agent_map`**, **`get_agent_map`**: ask your coding agent to "map this app for Plures". It reads the guide, reads your code where it runs, and sends Plures only the map: the steps, the actions with consequences, and a drafted check for each place a person should look. Open the map in your dashboard to try each check and add it.
+**`get_mapping_guide`**, **`submit_agent_map`**, **`get_agent_map`**: ask your coding agent to "map this app for Plures". It reads the guide, reads your code where it runs, and sends Plures only the map: the steps, the actions with consequences, and a drafted check for each place a person should look. Open the map in your dashboard to try each check and add it. With a key, `get_mapping_guide` includes the app's Map also note.
+
+**`add_check`**, **`get_map_versions`**, **`restore_map_version`**, **`set_map_focus`**: add your own check at any step (live at once, kept through new maps), list the map's versions and restore one (as a new version, so it can be undone), and tell the next map where else to look.
 
 Each result tells the agent the answer, how many people agreed and whether it is safe to act on. If you've added your team at plures.si/dashboard/team, decisions verified people don't all agree on go to your team, and the agent gets their decision as the final answer.
 

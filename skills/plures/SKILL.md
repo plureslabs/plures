@@ -149,6 +149,12 @@ const check = await plures.check("refunds", { order_total, reason });
 if (check.answer !== "Approve") return;
 ```
 
+The map covers every agent and automated flow in the repo and ranks its suggestions (priority 1 is recommended). The developer can also:
+
+- Add their own check at any step the map didn't flag: the `add_check` MCP tool, `plures.maps.addCheck(app, { at, title, question, options })`, or **Add a check here** on the map page. It is live at once and survives new maps.
+- Tell the next map where else to look: `set_map_focus`, or `plures.apps.update(app, { map_focus })`.
+- Undo any change: every new map and every change to a check is a version; `get_map_versions` and `restore_map_version`, or `plures.maps.versions(app)` and `plures.maps.restore(app, version)`.
+
 ## Pay per decision with x402 (preview)
 
 Agents can buy a single decision with no account, paying in USDC through x402: send the create task request with no API key, pay the `402` with an x402 client, and send it again with `X-PAYMENT`. It runs on the Base Sepolia test network for now; real USDC on Base is coming. See https://plures.si/docs#x402.

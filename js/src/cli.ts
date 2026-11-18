@@ -75,8 +75,18 @@ function hasClaude() {
   return spawnSync(process.platform === "win32" ? "where" : "which", ["claude"], { stdio: "ignore" }).status === 0;
 }
 
+// The app's own guide when there is a key: the public guide plus the areas the developer asked the
+// map to look at too (Map also on the map page). Without a key, or if that fails, the public guide.
+async function mapGuide(): Promise<string> {
+  if (key) {
+    const r = await fetch(`${base}/api/v1/apps/${encodeURIComponent(app)}/map_guide`, { headers: { authorization: `Bearer ${key}` } }).catch(() => null);
+    if (r?.ok) { const t = await r.text().catch(() => ""); if (t) return t; }
+  }
+  return (await fetch(`${base}/api/v1/map_guide`)).text().catch(() => "");
+}
+
 async function map() {
-  const guide = await (await fetch(`${base}/api/v1/map_guide`)).text().catch(() => "");
+  const guide = await mapGuide().catch(() => "");
   if (!guide) die("Couldn't reach Plures for the mapping guide. Check your connection.");
   if (!hasClaude()) {
     console.log(`${bold("Map this app with your coding agent")}\n
@@ -424,7 +434,7 @@ async function main() {
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);
-  if (sub === "guide") return void console.log(await (await fetch(`${base}/api/v1/map_guide`)).text());
+  if (sub === "guide") return void console.log(await mapGuide());
   if (sub === "workflow") return workflow();
   if (sub === "github") return github(arg, argv[3]);
   return map();
