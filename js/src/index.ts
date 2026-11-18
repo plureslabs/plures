@@ -265,9 +265,13 @@ export type TestMix = { object: "test_mix"; mix: Mix | null; to_team_percent: nu
 /** Prepaid credit for live tasks, in US cents. */
 export type MapNode = { id: string; label: string; kind: "input" | "model" | "tool" | "action" | "data" | "output" | "human"; file?: string | null; line?: number | null; risk?: "low" | "medium" | "high" | null; note?: string | null };
 export type MapDraft = { question: string; options: string[]; show?: string[]; hide?: string[]; instructions?: string | null; route?: "verifiers" | "team"; team?: string | null; verifiers?: number; escalate_below?: number | null; example?: string | null };
-export type MapCheckpoint = { id?: string; at: string; why: string; category?: string; when?: string | null; status?: "suggested" | "added" | "dismissed"; draft?: MapDraft | null;
+export type MapCheckpoint = { id?: string; title?: string | null; at: string; why: string; category?: string; when?: string | null; status?: "suggested" | "added" | "dismissed"; draft?: MapDraft | null; priority?: 1 | 2 | null; by?: "engine" | "you";
   stats?: { tasks: number; done: number; agreement: number | null; to_team: number; internal: number; med_ms: number | null } };
 /** An agent map: the steps of one app's agent and where people check. Written by your coding agent; no source code. */
+/** Your own check, added at any step of the map. options: the go ahead answer first. */
+export type NewMapCheck = { at: string; title: string; question: string; options: string[]; route?: "verifiers" | "team"; why?: string; show?: string[] };
+/** A kept version of an app's map: a new map of the code (map) or a change to a check (change). */
+export type MapVersion = { object: "map_version"; version: number; created_at: string; kind: "map" | "change"; what: string; by: string | null; checks_on: number; steps: number; current: boolean };
 export type AgentMap = { name?: string | null; summary?: string | null; source?: { repo?: string | null; commit?: string | null; tool?: string | null }; nodes: MapNode[]; edges: { from: string; to: string; label?: string | null }[]; checkpoints: MapCheckpoint[] };
 export type MapKey = { object: "map_key"; id: string; app: string; prefix: string; label: string | null; created_at: string; last_used_at: string | null };
 export type MapChanges = { since: number | null; added: { id: string; label: string; score: number | null; checked: boolean }[]; removed: { id: string; label: string }[]; renamed: { from: string; to: string; label: string }[]; risky: { id: string; label: string; score: number; why: string[] }[] };
@@ -427,7 +431,8 @@ export class Plures {
     create: (params: { name: string; id?: string }) => this.req<App>("POST", "/api/v1/apps", params),
     retrieve: (id: string) => this.req<App>("GET", `/api/v1/apps/${encodeURIComponent(id)}`),
     /** Rename it, change its id (its tasks move with it), make it the default, or archive and restore it. */
-    update: (id: string, params: { name?: string; id?: string; default?: true; archived?: boolean }) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, params),
+    /** map_focus (Map also): the parts of the app the next map should look at too; null clears it. */
+    update: (id: string, params: { name?: string; id?: string; default?: true; archived?: boolean; map_focus?: string | null }) => this.req<App & { map_focus?: string | null }>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, params),
     /** Keeps its tasks, ledger, map and grades readable, but it takes no new work and doesn't count toward the 25 app limit. */
     archive: (id: string) => this.req<App>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, { archived: true }),
     /** Brings an archived app back into use. */
@@ -441,13 +446,28 @@ export class Plures {
    * writes the map; Plures gets only the map. guide() returns the steps it follows.
    */
   maps = {
-    guide: async () => { const r = await fetch(`${this.base}/api/v1/map_guide`); return r.text(); },
+    /** The mapping guide. With an app, that app's guide: the same plus its Map also note. */
+    guide: async (app?: string) => {
+      if (app) {
+        const r = await fetch(`${this.base}/api/v1/apps/${encodeURIComponent(app)}/map_guide`, { headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": this.ua } });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new PluresError(d?.error?.message ?? `HTTP ${r.status}`, r.status, d?.error?.type ?? "api_error"); }
+        return r.text();
+      }
+      const r = await fetch(`${this.base}/api/v1/map_guide`); return r.text();
+    },
     retrieve: (app: string) => this.req<StoredAgentMap>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map`),
     /** Uploads a new version. Checks you already added or dismissed keep that. */
     /** A branch other than the main one gets its own map, compared with main, and noted on its pull request. */
     upload: (app: string, map: AgentMap, opts: { branch?: string } = {}) => this.req<StoredAgentMap>("PUT", `/api/v1/apps/${encodeURIComponent(app)}/map`, map, opts.branch ? { "plures-branch": opts.branch } : {}),
+    /** Turn a check on (added, saving its routing rule) or off (suggested), or dismiss it. Saved as a new version. */
     setCheckpoint: (app: string, id: string, status: "added" | "dismissed" | "suggested") =>
       this.req<StoredAgentMap>("PATCH", `/api/v1/apps/${encodeURIComponent(app)}/map/checkpoints/${encodeURIComponent(id)}`, { status }),
+    /** Add your own check at any step of the map. It goes live at once and stays when the app is mapped again. */
+    addCheck: (app: string, check: NewMapCheck) => this.req<StoredAgentMap & { checkpoint: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map/checkpoints`, check),
+    /** The kept versions of the map (the last 100), newest first. */
+    versions: (app: string, opts: { limit?: number } = {}) => this.req<{ object: "list"; app: string; data: MapVersion[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map/versions${opts.limit ? `?limit=${opts.limit}` : ""}`),
+    /** Make an older version current again, checks and routing included, as a new version (so it can be undone too). */
+    restore: (app: string, version: number) => this.req<StoredAgentMap & { restored: number; warnings?: string[] }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map/versions/${version}/restore`),
     /** A key that can only read and upload this app's map, for CI. The key is in the response once. */
     createKey: (app: string, opts: { label?: string } = {}) => this.req<MapKey & { key: string }>("POST", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`, opts),
     keys: (app: string) => this.req<{ object: "list"; data: MapKey[] }>("GET", `/api/v1/apps/${encodeURIComponent(app)}/map_keys`),
