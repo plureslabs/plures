@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.31.0"
+__version__ = "1.32.0"
 
 _UNSET = object()  # a keyword argument left out, as opposed to None
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
@@ -163,14 +163,14 @@ class Plures:
         suggestions."""
         return self._req("GET", "/api/v1/scorecard" + ("?" + urllib.parse.urlencode({"app": app}) if app else ""))
 
-    def get_taste(self, category=None, examples=None):
-        """Taste: what a team wants its agents' work to look like. Returns the rules in force and
+    def get_standards(self, category=None, examples=None):
+        """Standards (called Taste before 1.32): what a team wants its agents' work to look like. Returns the rules in force and
         recent examples for the category (plus those for all work), and guidance: the rules as
         text, ready to add to your agent's instructions. Free. The same for test and live keys."""
         q = {k: v for k, v in {"category": category, "examples": examples}.items() if v is not None}
-        return self._req("GET", "/api/v1/taste" + ("?" + urllib.parse.urlencode(q) if q else ""))
+        return self._req("GET", "/api/v1/standards" + ("?" + urllib.parse.urlencode(q) if q else ""))
 
-    def check_taste(self, draft=None, image_url=None, category=None):
+    def check_standards(self, draft=None, image_url=None, category=None):
         """Holds a draft up against the team's rules and examples before a person sees it. Returns
         pass, the rules it breaks with the reason for each, and suggestions. checked False means
         nothing was assessed (no rules yet, or the check was unavailable): never treat that as
@@ -178,33 +178,66 @@ class Plures:
         exact or sent at all: Plures reads the draft and applies the rules of each category it is
         sure enough the draft belongs to; categories in the result lists which were applied."""
         body = {k: v for k, v in {"draft": draft, "image_url": image_url, "category": category}.items() if v is not None}
-        return self._req("POST", "/api/v1/taste/check", body)
+        return self._req("POST", "/api/v1/standards/check", body)
 
-    def list_taste_rules(self, status=None, category=None):
+    def list_standards_rules(self, status=None, category=None):
         """status: active (default), proposed, declined, retired or all."""
         q = {k: v for k, v in {"status": status, "category": category}.items() if v is not None}
-        return self._req("GET", "/api/v1/taste/rules" + ("?" + urllib.parse.urlencode(q) if q else ""))
+        return self._req("GET", "/api/v1/standards/rules" + ("?" + urllib.parse.urlencode(q) if q else ""))
 
-    def add_taste_rule(self, text, category=None):
+    def add_standards_rule(self, text, category=None):
         """Adds a standing rule, in force at once. One plain sentence, up to 400 characters."""
         body = {k: v for k, v in {"text": text, "category": category}.items() if v is not None}
-        return self._req("POST", "/api/v1/taste/rules", body)
+        return self._req("POST", "/api/v1/standards/rules", body)
 
-    def retire_taste_rule(self, rule_id):
-        return self._req("DELETE", "/api/v1/taste/rules/" + urllib.parse.quote(rule_id))
+    def retire_standards_rule(self, rule_id):
+        return self._req("DELETE", "/api/v1/standards/rules/" + urllib.parse.quote(rule_id))
 
-    def list_taste_examples(self, category=None, limit=None):
+    def list_standards_examples(self, category=None, limit=None):
         q = {k: v for k, v in {"category": category, "limit": limit}.items() if v is not None}
-        return self._req("GET", "/api/v1/taste/examples" + ("?" + urllib.parse.urlencode(q) if q else ""))
+        return self._req("GET", "/api/v1/standards/examples" + ("?" + urllib.parse.urlencode(q) if q else ""))
 
-    def add_taste_example(self, verdict, image_url=None, text=None, note=None, category=None):
+    def add_standards_example(self, verdict, image_url=None, text=None, note=None, category=None):
         """Adds something the team likes or doesn't: verdict "like" or "dislike", with image_url
         or text, and an optional note on why. Plures describes and tags it shortly after."""
         body = {k: v for k, v in {"verdict": verdict, "image_url": image_url, "text": text, "note": note, "category": category}.items() if v is not None}
-        return self._req("POST", "/api/v1/taste/examples", body)
+        return self._req("POST", "/api/v1/standards/examples", body)
+
+    def remove_standards_example(self, example_id):
+        return self._req("DELETE", "/api/v1/standards/examples/" + urllib.parse.quote(example_id))
+
+    # Taste is now Standards. The old names keep working.
+    def get_taste(self, category=None, examples=None):
+        """Deprecated: use get_standards."""
+        return self.get_standards(category, examples)
+
+    def check_taste(self, draft=None, image_url=None, category=None):
+        """Deprecated: use check_standards."""
+        return self.check_standards(draft, image_url, category)
+
+    def list_taste_rules(self, status=None, category=None):
+        """Deprecated: use list_standards_rules."""
+        return self.list_standards_rules(status, category)
+
+    def add_taste_rule(self, text, category=None):
+        """Deprecated: use add_standards_rule."""
+        return self.add_standards_rule(text, category)
+
+    def retire_taste_rule(self, rule_id):
+        """Deprecated: use retire_standards_rule."""
+        return self.retire_standards_rule(rule_id)
+
+    def list_taste_examples(self, category=None, limit=None):
+        """Deprecated: use list_standards_examples."""
+        return self.list_standards_examples(category, limit)
+
+    def add_taste_example(self, verdict, image_url=None, text=None, note=None, category=None):
+        """Deprecated: use add_standards_example."""
+        return self.add_standards_example(verdict, image_url, text, note, category)
 
     def remove_taste_example(self, example_id):
-        return self._req("DELETE", "/api/v1/taste/examples/" + urllib.parse.quote(example_id))
+        """Deprecated: use remove_standards_example."""
+        return self.remove_standards_example(example_id)
 
     def get_task(self, task_id, receipt=None):
         """receipt (preview): read a task paid with x402 without an API key. Remembered after create_task."""

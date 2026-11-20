@@ -228,6 +228,8 @@ export type ScorecardMeasure = {
 export type ScorecardSetting = { value: number; default: number; min: number; max: number; label: string };
 export type Scorecard = {
   object: "scorecard"; mode: "live" | "test"; app: string | null; window_days: number; enough: number; measures: ScorecardMeasure[];
+  standards_checks: { checks: number; held: number };
+  /** @deprecated The old name of standards_checks. */
   taste_checks: { checks: number; held: number };
   settings: Record<"similarity" | "support" | "agreement" | "audit_rate" | "rule_fit", ScorecardSetting>;
   /** A change to a setting Plures is proposing, waiting for a person's answer. */
@@ -235,12 +237,25 @@ export type Scorecard = {
     evidence: { decisions_replayed: number; now: { settles: number; wrong: number }; with_change: { settles: number; wrong: number } }; created_at: string } | null;
 };
 
+export type StandardsRule = { object: "standards_rule"; id: string; text: string; category: string | null; status: "proposed" | "active" | "declined" | "retired"; source: "manual" | "team" | "inferred"; created_at: string; approved_at: string | null };
+/** Something the team likes or doesn't. description and tags are written by Plures shortly after it is added. */
+export type StandardsExample = { object: "standards_example"; id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[]; created_at: string };
+/** guidance is the rules as text, ready to add to an agent's instructions. */
+export type Standards = { object: "standards"; category: string | null; rules: StandardsRule[]; examples: StandardsExample[]; guidance: string };
+/** checked false means nothing was assessed (no rules yet, or the check was unavailable): never treat that as approval. */
+export type StandardsCheck = { object: "standards_check"; pass: boolean; checked: boolean; summary: string; rules_considered: number; examples_considered: number; violations: { rule_id: string; rule: string; why: string }[]; suggestions: string[];
+  /** The categories whose rules were applied: one you named (`label`), or one Plures judged the draft to be (`router`), with how sure it was from 0 to 1. */
+  categories?: { category: string; by: "label" | "router"; fit: number }[] };
+/** @deprecated Taste is now Standards: see the Standards types. */
 export type TasteRule = { object: "taste_rule"; id: string; text: string; category: string | null; status: "proposed" | "active" | "declined" | "retired"; source: "manual" | "team" | "inferred"; created_at: string; approved_at: string | null };
 /** Something the team likes or doesn't. description and tags are written by Plures shortly after it is added. */
+/** @deprecated Taste is now Standards: see the Standards types. */
 export type TasteExample = { object: "taste_example"; id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[]; created_at: string };
 /** guidance is the rules as text, ready to add to an agent's instructions. */
+/** @deprecated Taste is now Standards: see the Standards types. */
 export type Taste = { object: "taste"; category: string | null; rules: TasteRule[]; examples: TasteExample[]; guidance: string };
 /** checked false means nothing was assessed (no rules yet, or the check was unavailable): never treat that as approval. */
+/** @deprecated Taste is now Standards: see the Standards types. */
 export type TasteCheck = { object: "taste_check"; pass: boolean; checked: boolean; summary: string; rules_considered: number; examples_considered: number; violations: { rule_id: string; rule: string; why: string }[]; suggestions: string[];
   /** The categories whose rules were applied: one you named (`label`), or one Plures judged the draft to be (`router`), with how sure it was from 0 to 1. */
   categories?: { category: string; by: "label" | "router"; fit: number }[] };
@@ -296,7 +311,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.31.0";
+export const VERSION = "1.32.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -608,7 +623,7 @@ export class Plures {
 
   /**
    * Is it working. The numbers from the Judgment graph page for this key's mode: precedent accuracy,
-   * share answered by precedent, right the first time, taste false alarms, and the time and cost of
+   * share answered by precedent, right the first time, standards false alarms, and the time and cost of
    * a decision, each for the last 30 days and the 30 before with how many decisions it rests on.
    * Also the account's precedent settings and any change Plures is suggesting. Free, and read
    * only: a person changes settings and answers suggestions.
@@ -618,7 +633,50 @@ export class Plures {
   };
 
   /**
-   * Taste: what a team wants its agents' work to look like. get() returns the rules in force and
+   * Standards: what a team wants its agents' work to look like. get() returns the rules in force and
+   * recent examples for a category (plus those for all work); add guidance to your agent's
+   * instructions. check() holds a draft up against them before a person sees it and says which
+   * rules it breaks and why. Rules are written directly, or drafted by Plures from the team's notes
+   * and approved by a team member first. Free. The same for test and live keys.
+   * (Called Taste before 1.32; plures.taste still works.)
+   */
+  standards = {
+    get: (p: { category?: string; examples?: number } = {}) => {
+      const q = new URLSearchParams();
+      if (p.category) q.set("category", p.category);
+      if (p.examples != null) q.set("examples", String(p.examples));
+      return this.req<Standards>("GET", `/api/v1/standards${q.size ? `?${q}` : ""}`);
+    },
+    check: (p: { draft?: string; image_url?: string; category?: string }) => this.req<StandardsCheck>("POST", "/api/v1/standards/check", p),
+    rules: {
+      list: (p: { status?: StandardsRule["status"] | "all"; category?: string } = {}) => {
+        const q = new URLSearchParams();
+        if (p.status) q.set("status", p.status);
+        if (p.category) q.set("category", p.category);
+        return this.req<{ object: "list"; data: StandardsRule[] }>("GET", `/api/v1/standards/rules${q.size ? `?${q}` : ""}`);
+      },
+      /** In force at once. */
+      add: (p: { text: string; category?: string }) => this.req<StandardsRule>("POST", "/api/v1/standards/rules", p),
+      retire: (id: string) => this.req<StandardsRule>("DELETE", `/api/v1/standards/rules/${encodeURIComponent(id)}`),
+    },
+    examples: {
+      list: (p: { category?: string; limit?: number } = {}) => {
+        const q = new URLSearchParams();
+        if (p.category) q.set("category", p.category);
+        if (p.limit != null) q.set("limit", String(p.limit));
+        return this.req<{ object: "list"; data: StandardsExample[] }>("GET", `/api/v1/standards/examples${q.size ? `?${q}` : ""}`);
+      },
+      /** Needs image_url (a public https image) or text. */
+      add: (p: { verdict: "like" | "dislike"; image_url?: string; text?: string; note?: string; category?: string }) => this.req<StandardsExample>("POST", "/api/v1/standards/examples", p),
+      remove: (id: string) => this.req<{ object: "standards_example"; id: string; deleted: true }>("DELETE", `/api/v1/standards/examples/${encodeURIComponent(id)}`),
+    },
+  };
+
+  /**
+   * @deprecated Taste is now Standards: use plures.standards, which has the same methods. This keeps
+   * working and answers with the old object names ("taste", "taste_rule", ...).
+   *
+   * What a team wants its agents' work to look like. get() returns the rules in force and
    * recent examples for a category (plus those for all work); add guidance to your agent's
    * instructions. check() holds a draft up against them before a person sees it and says which
    * rules it breaks and why. Rules are written directly, or drafted by Plures from the team's notes
