@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-export const VERSION = "1.13.0";
+export const VERSION = "1.14.0";
 
 export type ServerOptions = {
   /** A Plures API key (pk_test_ or pk_live_). Without one, every tool explains how to get one. */
@@ -38,10 +38,10 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       "set route to team for those, and for anything confidential, a policy call or regulated, so it goes straight to the developer's team instead of verified people. " +
       "For routine calls the developer's people have decided many times before, set use_precedent on ask_humans: when the case is settled in their judgment graph it is decided by precedent for $0.05, otherwise it goes to people as usual. " +
       "find_precedents shows how similar cases were decided, for free. " +
-      "Before you produce work a team will judge (a post, a reply, a design, an image), call get_taste for that kind of work and follow the rules it returns; they are the team's standing instructions. " +
-      "When a draft is ready, call check_against_taste and fix what it reports before asking a person. A check that says it could not assess the draft is not approval. " +
-      "When the user states a standing preference for their agents' work, offer to save it with add_taste_rule; when they show something they like or dislike, add_taste_example. " +
-      "get_scorecard says whether precedents and taste are working for this account (accuracy, share answered by precedent, right the first time, false alarms, time and cost), each with how many decisions it rests on; read it before relying on use_precedent, and when the user asks how their agents are doing. It is read only: settings and suggested changes are answered by a person in the dashboard. " +
+      "Before you produce work a team will judge (a post, a reply, a design, an image), call get_standards for that kind of work and follow the rules it returns; they are the team's standing instructions. " +
+      "When a draft is ready, call check_against_standards and fix what it reports before asking a person. A check that says it could not assess the draft is not approval. " +
+      "When the user states a standing preference for their agents' work, offer to save it with add_standards_rule; when they show something they like or dislike, add_standards_example. " +
+      "get_scorecard says whether precedents and standards are working for this account (accuracy, share answered by precedent, right the first time, false alarms, time and cost), each with how many decisions it rests on; read it before relying on use_precedent, and when the user asks how their agents are doing. It is read only: settings and suggested changes are answered by a person in the dashboard. " +
       "audit_my_agent sends an audit (the first is free, more cost $0.20 a decision from credit) of up to 50 decisions the agent already made (from logs or a database), and get_audit_report reads the results; suggest it when a developer wants to know where their agent goes wrong before integrating. " +
       "Use ask_judgment when there's no right answer to check, only what people think: which of two replies, designs or model answers is better, whether a customer would accept something, how well work meets a brief, whether a design, video or generated image has a flaw. " +
       "It returns the panel's spread of views; a contested result means people genuinely split, so treat it as a close call, not an error. " +
@@ -339,7 +339,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
   type TExample = { id: string; verdict: "like" | "dislike"; category: string | null; note: string | null; text: string | null; image_url: string | null; description: string | null; tags: string[] };
 
   type Measure = { key: string; label: string; unit: "ratio" | "seconds" | "cents"; value: number | null; n: number; counts: string; early: boolean; before: { value: number | null; n: number }; trend: string | null };
-  type Card = { mode: string; enough: number; measures: Measure[]; taste_checks: { checks: number; held: number };
+  type Card = { mode: string; enough: number; measures: Measure[]; standards_checks?: { checks: number; held: number }; taste_checks?: { checks: number; held: number };
     settings: Record<string, { value: number; default: number; label: string }>; suggestion: { question: string; why: string } | null };
   const shown = (m: Measure, v: number | null) => v == null ? "no data"
     : m.unit === "ratio" ? `${Math.round(v * 100)}%` : m.unit === "cents" ? `$${(v / 100).toFixed(2)}`
@@ -347,7 +347,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
 
   server.registerTool("get_scorecard", {
     title: "Is it working",
-    description: "Returns whether precedents and taste are working for this account: precedent accuracy from spot checks, share of decisions answered by precedent, decisions right the first time, taste false alarms, and the time and cost of a decision. " +
+    description: "Returns whether precedents and standards are working for this account: precedent accuracy from spot checks, share of decisions answered by precedent, decisions right the first time, standards false alarms, and the time and cost of a decision. " +
       "Each number comes with how many decisions it rests on; one marked early is a hint, not a fact. Also shows the precedent settings and any change Plures is suggesting. " +
       "Read only: a person changes settings and answers suggestions in the dashboard. Free.",
     inputSchema: { app: z.string().max(80).optional().describe("One app's decisions only. Leave out for the whole account") },
@@ -368,8 +368,8 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     } catch (e) { return fail(e); }
   });
 
-  server.registerTool("get_taste", {
-    title: "Read the team's taste",
+  server.registerTool("get_standards", {
+    title: "Read the team's standards",
     description: "Returns what this team wants its agents' work to look like: the standing rules in force and recent examples of what they like and don't. " +
       "Call it before producing work the team will judge, and follow the rules. Pass category for one kind of work; rules that apply to everything are always included. Free.",
     inputSchema: {
@@ -383,7 +383,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       const q = new URLSearchParams();
       if (p.category) q.set("category", p.category);
       if (p.examples != null) q.set("examples", String(p.examples));
-      const r = await api("GET", `/api/v1/taste${q.size ? `?${q}` : ""}`) as { rules: TRule[]; examples: TExample[] };
+      const r = await api("GET", `/api/v1/standards${q.size ? `?${q}` : ""}`) as { rules: TRule[]; examples: TExample[] };
       const rules = r.rules.map((x) => `- ${x.text}${x.category ? ` (${x.category})` : ""}`);
       const ex = r.examples.map((e) => `- ${e.verdict === "like" ? "Liked" : "Not liked"}${e.category ? ` (${e.category})` : ""}: ${e.description ?? e.text?.slice(0, 200) ?? e.image_url ?? ""}${e.note ? ` Their note: "${e.note}"` : ""}`);
       const text = [
@@ -394,8 +394,8 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     } catch (e) { return fail(e); }
   });
 
-  server.registerTool("check_against_taste", {
-    title: "Check a draft against the team's taste",
+  server.registerTool("check_against_standards", {
+    title: "Check a draft against the team's standards",
     description: "Holds a draft up against the team's rules and examples before a person sees it, and says which rules it breaks and why. " +
       "Send the text, a public https image link, or both. Fix what it reports, then ask a person if the work still needs one. Free.",
     inputSchema: {
@@ -408,7 +408,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     if (!KEY) return noKey();
     if (!p.draft && !p.image_url) return { content: [{ type: "text" as const, text: "Send draft, image_url, or both." }], isError: true };
     try {
-      const r = await api("POST", "/api/v1/taste/check", p) as { pass: boolean; checked: boolean; summary: string; violations: { rule: string; why: string }[]; suggestions: string[]; categories?: { category: string; by: string; fit: number }[] };
+      const r = await api("POST", "/api/v1/standards/check", p) as { pass: boolean; checked: boolean; summary: string; violations: { rule: string; why: string }[]; suggestions: string[]; categories?: { category: string; by: string; fit: number }[] };
       const text = !r.checked ? `Not checked: ${r.summary} This is not approval.`
         : [r.pass ? `Passes the team's rules. ${r.summary}` : `Breaks ${r.violations.length} of the team's rules. ${r.summary}`,
           ...r.violations.map((v) => `- Rule: "${v.rule}" Why: ${v.why}`),
@@ -418,7 +418,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     } catch (e) { return fail(e); }
   });
 
-  server.registerTool("add_taste_rule", {
+  server.registerTool("add_standards_rule", {
     title: "Save a standing rule",
     description: "Saves a standing rule for this team's agents, in force at once. Use it only when the user states a preference that should hold from now on, and confirm the wording with them first. One plain sentence.",
     inputSchema: {
@@ -429,12 +429,12 @@ export function createServer(opts: ServerOptions = {}): McpServer {
   }, async (p) => {
     if (!KEY) return noKey();
     try {
-      const r = await api("POST", "/api/v1/taste/rules", p) as TRule;
-      return { content: [{ type: "text" as const, text: `Saved as a rule${r.category ? ` for ${r.category}` : " for all work"}: "${r.text}" (${r.id}). The team can retire it on the Taste page of their dashboard.` }], structuredContent: r as unknown as Record<string, unknown> };
+      const r = await api("POST", "/api/v1/standards/rules", p) as TRule;
+      return { content: [{ type: "text" as const, text: `Saved as a rule${r.category ? ` for ${r.category}` : " for all work"}: "${r.text}" (${r.id}). The team can retire it on the Standards page of their dashboard.` }], structuredContent: r as unknown as Record<string, unknown> };
     } catch (e) { return fail(e); }
   });
 
-  server.registerTool("add_taste_example", {
+  server.registerTool("add_standards_example", {
     title: "Save an example of what the team likes or doesn't",
     description: "Saves something the team likes or doesn't, so their agents can take it into account: an image by public https link, or a piece of text, with an optional note on why. Plures describes and tags it.",
     inputSchema: {
@@ -449,7 +449,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     if (!KEY) return noKey();
     if (!p.image_url && !p.text) return { content: [{ type: "text" as const, text: "An example needs image_url or text." }], isError: true };
     try {
-      const r = await api("POST", "/api/v1/taste/examples", p) as TExample;
+      const r = await api("POST", "/api/v1/standards/examples", p) as TExample;
       return { content: [{ type: "text" as const, text: `Saved as something the team ${r.verdict === "like" ? "likes" : "doesn't like"} (${r.id}).` }], structuredContent: r as unknown as Record<string, unknown> };
     } catch (e) { return fail(e); }
   });
