@@ -309,6 +309,14 @@ export type SetupPlan = {
   quality: { rubric: string; question: string; options: string[]; exists: boolean }; answers: boolean;
   urls: { agent: string; checks: string; map: string; keys: string }; instructions: string;
 };
+/** What to change in an agent from what people decided, from `plures.apps.improve(app)`. */
+export type ImprovePlan = {
+  object: "improve_plan"; app: { id: string; name: string; default: boolean };
+  findings: { kind: "standard" | "audit" | "settled" | "split"; title: string; detail: string }[];
+  counts: { standards: number; audit: number; settled: number; split: number };
+  by_hand: { title: string; url: string }[];
+  urls: { agent: string; standards: string; audit: string; graph: string; team: string }; instructions: string;
+};
 export type App = { object: "app"; id: string; name: string; default: boolean; /** Keeps its history but takes no new work. */ archived: boolean; created_at: string; tasks_30d?: number; waiting?: number; last_task_at?: string | null };
 
 export type Balance = {
@@ -318,7 +326,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.33.0";
+export const VERSION = "1.34.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -455,6 +463,9 @@ export class Plures {
     /** The setup plan `npx plures init` shows and applies: the checks that are turned on and where each goes,
      * the question people grade, whether to log answers, and the same plan as Markdown instructions. Reading it changes nothing. */
     setup: (id: string) => this.req<SetupPlan>("GET", `/api/v1/apps/${encodeURIComponent(id)}/setup`),
+    /** The improve plan `npx plures improve` shows and applies: what to change in the agent from your team's
+     * standards, your audit, and the questions people settled or split on. Reading it changes nothing. */
+    improve: (id: string) => this.req<ImprovePlan>("GET", `/api/v1/apps/${encodeURIComponent(id)}/improve`),
     /** Rename it, change its id (its tasks move with it), make it the default, or archive and restore it. */
     /** map_focus (Map also): the parts of the app the next map should look at too; null clears it. */
     update: (id: string, params: { name?: string; id?: string; default?: true; archived?: boolean; map_focus?: string | null }) => this.req<App & { map_focus?: string | null }>("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, params),

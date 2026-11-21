@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.33.0"
+__version__ = "1.34.0"
 
 _UNSET = object()  # a keyword argument left out, as opposed to None
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
@@ -292,6 +292,14 @@ class Plures:
         whether to log answers, and the same plan as Markdown instructions ("instructions").
         Reading it changes nothing."""
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app_id) + "/setup")
+
+    def app_improve(self, app_id):
+        """The improve plan `npx plures improve` shows and applies: what to change in the agent from
+        your team's standards, your audit, and the questions people settled or split on
+        ("findings", "counts"), what only you can do in the dashboard ("by_hand"), and the plan as
+        Markdown instructions ("instructions", empty when there is nothing to change yet).
+        Reading it changes nothing."""
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app_id) + "/improve")
 
     def update_app(self, app_id, name=None, id=None, default=None, archived=None, map_focus=_UNSET):
         """Renames an app, changes its id (its tasks move with it), makes it the default (default=True),
