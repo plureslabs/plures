@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// npx plures init: set this project up in one go. It shows every change first and asks before it writes.
+//   npx plures init [--app support-agent]        show the plan, then let Claude Code apply it on a new branch
+//   npx plures init --print                      print the plan as instructions, for any coding agent to follow
+//   npx plures init --yes                        don't ask before applying
 // npx plures map: your own coding agent reads this repo and Plures gets only the map.
 //   npx plures map [--app support-agent]        map with Claude Code if it's installed, then upload
 //   npx plures map upload [plures.map.json]     upload a map file your coding agent wrote
@@ -11,7 +15,7 @@ import { spawnSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { relative, isAbsolute } from "node:path";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { Plures, PluresError, VERSION, type StoredAgentMap } from "./index.js";
+import { Plures, PluresError, VERSION, type SetupPlan, type StoredAgentMap } from "./index.js";
 import { banner, drawMap, fancy, liveLine, openBrowser } from "./term.js";
 
 const argv = process.argv.slice(2);
@@ -19,7 +23,17 @@ const flag = (name: string) => { const i = argv.indexOf(`--${name}`); if (i < 0)
 const branch = flag("branch");
 const noOpen = argv.includes("--no-open") ? (argv.splice(argv.indexOf("--no-open"), 1), true) : false;
 const app = flag("app") ?? process.env.PLURES_APP ?? "default";
-const key = flag("key") ?? process.env.PLURES_API_KEY;
+// The key: --key, the environment, or this project's own .env files (read, never written or printed).
+function keyFromEnvFiles(): string | undefined {
+  for (const f of [".env.local", ".env"]) {
+    try {
+      const m = /^\s*(?:export\s+)?PLURES_API_KEY\s*=\s*["']?([^"'\s#]+)/m.exec(readFileSync(f, "utf8"));
+      if (m) return m[1];
+    } catch { /* no such file */ }
+  }
+  return undefined;
+}
+const key = flag("key") ?? process.env.PLURES_API_KEY ?? keyFromEnvFiles();
 const base = flag("base-url") ?? process.env.PLURES_BASE_URL ?? "https://plures.si";
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code: string) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -332,6 +346,105 @@ ${cp.code}
 // finds the cause, changes the code, adds eval cases, and writes a diagnosis. The files it reads go
 // to the drift panel live, names only. In GitHub Actions the branch is pushed and Plures opens the
 // pull request; locally the branch stays here for you to review.
+// ---------- init ----------
+// One command to set a project up: the checks that are turned on, the line that sends outputs to be
+// graded, and the line that logs answers. The plan comes from Plures with the developer's own key.
+// It is shown in full before anything is written. With Claude Code installed and a yes, Claude Code
+// makes the changes on this machine, on a new branch, and nothing is pushed. Run by a coding agent
+// (no terminal attached) or with --print, it prints the plan as instructions for that agent.
+
+function ask(question: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    process.stdout.write(question);
+    process.stdin.setEncoding("utf8");
+    process.stdin.once("data", (d) => { process.stdin.pause(); resolve(!/^\s*n/i.test(String(d))); });
+    process.stdin.resume();
+  });
+}
+
+async function init() {
+  const print = argv.includes("--print"), yes = argv.includes("--yes") || argv.includes("-y");
+  const again = `npx plures init${app !== "default" ? ` --app ${app}` : ""}`;
+  if (!key) {
+    console.log(`${bold("Plures needs a key first.")}\n
+  1. Get a free test key: ${cyan(`${base}/dashboard/keys`)}
+  2. Put it in this project's .env file as ${bold("PLURES_API_KEY=pk_test_...")}
+  3. Run ${cyan(again)} again.\n
+${dim("Test keys cost nothing and reach no real people.")}`);
+    process.exit(1);
+  }
+  let plan: SetupPlan;
+  try { plan = await client().apps.setup(app); }
+  catch (e) { die(e instanceof PluresError ? e.message : "Couldn't reach Plures. Check your connection and try again."); }
+
+  // Only create the question people grade (a coding agent following the printed plan asks for this).
+  if (argv.includes("--quality")) { await ensureQuality(plan); if (plan.quality.exists) console.log(`People already grade: "${plan.quality.question}"`); return; }
+  // A coding agent ran this, or the developer asked for the instructions: print them and stop.
+  // Nothing is changed on Plures or here.
+  if (print || (!process.stdout.isTTY && !yes)) {
+    console.log(plan.instructions);
+    if (!plan.quality.exists) console.log(`Before step 3 works, the question people grade has to exist. Create it by running:\n\n    ${again} --quality\n`);
+    return;
+  }
+
+  console.log(`\n${bold(`Plures setup for ${plan.app.name}`)}\n`);
+  if (!plan.mapped) {
+    console.log(`  ${plan.app.name} has no map yet. Map it first, so Plures knows where a person should check:\n\n    ${cyan(`npx plures map${app !== "default" ? ` --app ${app}` : ""}`)}\n\n  Then run ${cyan(again)} again.\n`);
+    return;
+  }
+  if (!plan.checks.length && plan.suggested) {
+    console.log(`  Plures found ${plan.suggested} ${plan.suggested === 1 ? "place" : "places"} a person should check, and none is turned on yet.\n  Choose them here, then run ${cyan(again)} again:\n\n    ${cyan(plan.urls.checks)}\n`);
+    if (!noOpen) await openBrowser(plan.urls.checks).catch(() => false);
+    return;
+  }
+  console.log(`  This will change your code in these places:\n`);
+  let n = 0;
+  for (const c of plan.checks) console.log(`  ${dim(String(++n).padStart(2))}  A person checks before ${bold(c.step.toLowerCase())}${c.where ? dim(`   ${c.where}`) : ""}`);
+  console.log(`  ${dim(String(++n).padStart(2))}  Outputs are sent to be graded: ${dim(`"${plan.quality.question}"`)}`);
+  if (plan.answers) console.log(`  ${dim(String(++n).padStart(2))}  Answers are logged, so the ones that went wrong get reviewed`);
+  console.log(`\n  ${dim("It runs on your machine. Your code is not sent to Plures.")}\n  ${dim("Changes go on a new branch. Nothing is pushed.")}\n  ${dim(key.startsWith("pk_test_") ? "This is a test key: it costs nothing and reaches no real people." : "This is a live key: checks reach real people and are charged.")}\n`);
+
+  if (!hasClaude()) {
+    console.log(`  Claude Code isn't installed here, so this command can't make the changes itself.\n  Give your coding agent this line, and it will:\n\n    ${cyan(`Run \`${again} --print\` in this project and follow what it prints.`)}\n`);
+    return;
+  }
+  const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
+  if (git("rev-parse", "--is-inside-work-tree").status !== 0) die("This folder isn't a git repository. Run it in your project, so the changes can go on a branch you review.");
+  if (git("status", "--porcelain").stdout.trim()) die("This repo has changes that aren't committed. Commit or stash them first, so the Plures changes stay separate and easy to review.");
+  if (!yes && !(await ask(`  Let Claude Code make these changes on a new branch? ${dim("[Y/n]")} `))) {
+    console.log(`\n  Nothing was changed. To see the full instructions: ${cyan(`${again} --print`)}\n`);
+    return;
+  }
+  await ensureQuality(plan);
+  console.log(`\n  ${dim("Claude Code is making the changes. It can read and edit files here, and run nothing.")}\n`);
+  const prompt = `${plan.instructions}\n\nMake these changes in the current directory now. You can read and edit files; you can't run commands, so add dependencies to the manifest and don't run installers. Change as little as possible.`;
+  const code = await new Promise<number>((resolve) => {
+    const p = spawn("claude", ["-p", prompt, "--allowedTools", "Read,Grep,Glob,Edit,Write"], { stdio: ["ignore", "inherit", "inherit"] });
+    p.on("close", (x) => resolve(x ?? 1)); p.on("error", () => resolve(1));
+  });
+  if (code !== 0 || !git("status", "--porcelain").stdout.trim()) die(`Claude Code didn't change any files, so there's nothing to review. To do it with another coding agent: ${again} --print`);
+  const br = `plures/setup-${Date.now().toString(36)}`;
+  for (const a of [["checkout", "-b", br], ["add", "-A"], ["commit", "-m", `Set up Plures for ${plan.app.name}: ${plan.checks.length} ${plan.checks.length === 1 ? "check" : "checks"}, quality grading${plan.answers ? ", answer logging" : ""}`]]) {
+    const r = git(...a);
+    if (r.status !== 0) die(`git ${a[0]} failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
+  }
+  const stat = git("show", "--stat", "--format=", "HEAD").stdout.trim();
+  console.log(`\n${cyan("✓")} Done, on the branch ${bold(br)}. Nothing was pushed.\n\n${stat.split("\n").map((l) => `  ${l}`).join("\n")}\n
+  Review it:   ${cyan("git show")}
+  Undo it:     ${cyan(`git checkout - && git branch -D ${br}`)}
+  See it live: ${cyan(plan.urls.agent)}\n`);
+}
+
+// The question people grade has to exist before outputs can be sent to it. Creating it changes
+// nothing in the code and costs nothing.
+async function ensureQuality(plan: SetupPlan) {
+  if (plan.quality.exists) return;
+  try {
+    await client().quality.rubrics.create({ name: plan.quality.rubric, question: plan.quality.question, options: plan.quality.options, ...(plan.app.default ? {} : { app: plan.app.id }) });
+    console.log(`  ${cyan("✓")} People will grade: ${dim(`"${plan.quality.question}"`)}`);
+  } catch (e) { console.log(coral(`  Couldn't create the quality question: ${e instanceof PluresError ? e.message : String(e)}`)); }
+}
+
 // Which branch this is: on GitHub from the run, else from git.
 function currentBranch() {
   const gitBranch = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).stdout?.trim();
@@ -427,10 +540,11 @@ Don't run the app or tests, and never include secrets or customer data in ${DIAG
 
 async function main() {
   const [cmd, sub, arg] = argv;
+  if (cmd === "init") return init();
   if (cmd === "check" && sub === "add") return checkAdd(arg);
   if (cmd === "drift" && sub === "fix") return driftFix(arg);
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n  npx plures drift fix <case>          find why quality fell and fix it, on a new branch\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures init [--app <id>]         set this project up: shows every change, asks, then applies it\n  npx plures init --print              print the same plan as instructions for any coding agent\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n  npx plures drift fix <case>          find why quality fell and fix it, on a new branch\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);

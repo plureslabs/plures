@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.32.0"
+__version__ = "1.33.0"
 
 _UNSET = object()  # a keyword argument left out, as opposed to None
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
@@ -285,6 +285,13 @@ class Plures:
 
     def get_app(self, app_id):
         return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app_id))
+
+    def app_setup(self, app_id):
+        """The setup plan `npx plures init` shows and applies: the checks that are turned on and where
+        each goes ("checks"), how many more are suggested, the question people grade ("quality"),
+        whether to log answers, and the same plan as Markdown instructions ("instructions").
+        Reading it changes nothing."""
+        return self._req("GET", "/api/v1/apps/" + urllib.parse.quote(app_id) + "/setup")
 
     def update_app(self, app_id, name=None, id=None, default=None, archived=None, map_focus=_UNSET):
         """Renames an app, changes its id (its tasks move with it), makes it the default (default=True),
