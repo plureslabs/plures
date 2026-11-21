@@ -9,12 +9,12 @@
     "subfolder": "mcp"
   },
   "websiteUrl": "https://plures.si/docs#mcp",
-  "version": "1.16.0",
+  "version": "1.16.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "plures-mcp",
-      "version": "1.16.0",
+      "version": "1.16.1",
       "transport": {
         "type": "stdio"
       },
@@ -29,6 +29,20 @@
           "name": "PLURES_BASE_URL",
           "description": "API base URL, defaults to https://plures.si",
           "isRequired": false
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://plures.si/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer followed by your Plures API key, for example Bearer pk_test_... (a free test key answers instantly).",
+          "isRequired": true,
+          "isSecret": true
         }
       ]
     }
