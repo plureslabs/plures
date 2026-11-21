@@ -3,6 +3,8 @@
 //   npx plures init [--app support-agent]        show the plan, then let Claude Code apply it on a new branch
 //   npx plures init --print                      print the plan as instructions, for any coding agent to follow
 //   npx plures init --yes                        don't ask before applying
+// npx plures improve: after setup, change the agent's prompt and code from what people decided.
+//   npx plures improve [--app support-agent] [--print] [--yes]
 // npx plures map: your own coding agent reads this repo and Plures gets only the map.
 //   npx plures map [--app support-agent]        map with Claude Code if it's installed, then upload
 //   npx plures map upload [plures.map.json]     upload a map file your coding agent wrote
@@ -15,7 +17,7 @@ import { spawnSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { relative, isAbsolute } from "node:path";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { Plures, PluresError, VERSION, type SetupPlan, type StoredAgentMap } from "./index.js";
+import { Plures, PluresError, VERSION, type ImprovePlan, type SetupPlan, type StoredAgentMap } from "./index.js";
 import { banner, drawMap, fancy, liveLine, openBrowser } from "./term.js";
 
 const argv = process.argv.slice(2);
@@ -404,27 +406,34 @@ ${dim("Test keys cost nothing and reach no real people.")}`);
   if (plan.answers) console.log(`  ${dim(String(++n).padStart(2))}  Answers are logged, so the ones that went wrong get reviewed`);
   console.log(`\n  ${dim("It runs on your machine. Your code is not sent to Plures.")}\n  ${dim("Changes go on a new branch. Nothing is pushed.")}\n  ${dim(key.startsWith("pk_test_") ? "This is a test key: it costs nothing and reaches no real people." : "This is a live key: checks reach real people and are charged.")}\n`);
 
+  await handOff({ again, instructions: plan.instructions, question: "Let Claude Code make these changes on a new branch?", yes, before: () => ensureQuality(plan), branch: "setup",
+    message: `Set up Plures for ${plan.app.name}: ${plan.checks.length} ${plan.checks.length === 1 ? "check" : "checks"}, quality grading${plan.answers ? ", answer logging" : ""}`, live: plan.urls.agent });
+}
+
+// The last part of init and improve: with Claude Code installed and a yes, Claude Code makes the
+// changes here, on a new branch, with nothing pushed. It can read and edit files and run nothing.
+async function handOff(o: { again: string; instructions: string; question: string; yes: boolean; before?: () => Promise<void>; branch: string; message: string; live: string }) {
   if (!hasClaude()) {
-    console.log(`  Claude Code isn't installed here, so this command can't make the changes itself.\n  Give your coding agent this line, and it will:\n\n    ${cyan(`Run \`${again} --print\` in this project and follow what it prints.`)}\n`);
+    console.log(`  Claude Code isn't installed here, so this command can't make the changes itself.\n  Give your coding agent this line, and it will:\n\n    ${cyan(`Run \`${o.again} --print\` in this project and follow what it prints.`)}\n`);
     return;
   }
   const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
   if (git("rev-parse", "--is-inside-work-tree").status !== 0) die("This folder isn't a git repository. Run it in your project, so the changes can go on a branch you review.");
   if (git("status", "--porcelain").stdout.trim()) die("This repo has changes that aren't committed. Commit or stash them first, so the Plures changes stay separate and easy to review.");
-  if (!yes && !(await ask(`  Let Claude Code make these changes on a new branch? ${dim("[Y/n]")} `))) {
-    console.log(`\n  Nothing was changed. To see the full instructions: ${cyan(`${again} --print`)}\n`);
+  if (!o.yes && !(await ask(`  ${o.question} ${dim("[Y/n]")} `))) {
+    console.log(`\n  Nothing was changed. To see the full instructions: ${cyan(`${o.again} --print`)}\n`);
     return;
   }
-  await ensureQuality(plan);
+  if (o.before) await o.before();
   console.log(`\n  ${dim("Claude Code is making the changes. It can read and edit files here, and run nothing.")}\n`);
-  const prompt = `${plan.instructions}\n\nMake these changes in the current directory now. You can read and edit files; you can't run commands, so add dependencies to the manifest and don't run installers. Change as little as possible.`;
+  const prompt = `${o.instructions}\n\nMake these changes in the current directory now. You can read and edit files; you can't run commands, so add dependencies to the manifest and don't run installers. Change as little as possible.`;
   const code = await new Promise<number>((resolve) => {
     const p = spawn("claude", ["-p", prompt, "--allowedTools", "Read,Grep,Glob,Edit,Write"], { stdio: ["ignore", "inherit", "inherit"] });
     p.on("close", (x) => resolve(x ?? 1)); p.on("error", () => resolve(1));
   });
-  if (code !== 0 || !git("status", "--porcelain").stdout.trim()) die(`Claude Code didn't change any files, so there's nothing to review. To do it with another coding agent: ${again} --print`);
-  const br = `plures/setup-${Date.now().toString(36)}`;
-  for (const a of [["checkout", "-b", br], ["add", "-A"], ["commit", "-m", `Set up Plures for ${plan.app.name}: ${plan.checks.length} ${plan.checks.length === 1 ? "check" : "checks"}, quality grading${plan.answers ? ", answer logging" : ""}`]]) {
+  if (code !== 0 || !git("status", "--porcelain").stdout.trim()) die(`Claude Code didn't change any files, so there's nothing to review. To do it with another coding agent: ${o.again} --print`);
+  const br = `plures/${o.branch}-${Date.now().toString(36)}`;
+  for (const a of [["checkout", "-b", br], ["add", "-A"], ["commit", "-m", o.message]]) {
     const r = git(...a);
     if (r.status !== 0) die(`git ${a[0]} failed: ${(r.stderr || r.stdout).trim().slice(0, 200)}`);
   }
@@ -432,7 +441,50 @@ ${dim("Test keys cost nothing and reach no real people.")}`);
   console.log(`\n${cyan("✓")} Done, on the branch ${bold(br)}. Nothing was pushed.\n\n${stat.split("\n").map((l) => `  ${l}`).join("\n")}\n
   Review it:   ${cyan("git show")}
   Undo it:     ${cyan(`git checkout - && git branch -D ${br}`)}
-  See it live: ${cyan(plan.urls.agent)}\n`);
+  See it live: ${cyan(o.live)}\n`);
+}
+
+// ---------- improve ----------
+// After setup: take what Plures has learned from people (the team's standards, what an audit found
+// wrong, the questions people settled or split on) and turn it into changes to this project's
+// prompt and code. Same rules as init: the plan is shown in full, nothing is written without a
+// yes, changes go on a new branch and nothing is pushed.
+async function improve() {
+  const print = argv.includes("--print"), yes = argv.includes("--yes") || argv.includes("-y");
+  const again = `npx plures improve${app !== "default" ? ` --app ${app}` : ""}`;
+  if (!key) die(`Plures needs a key first. Put a key from ${base}/dashboard/keys in this project's .env file as PLURES_API_KEY, then run ${again} again.`);
+  let plan: ImprovePlan;
+  try { plan = await client().apps.improve(app); }
+  catch (e) { die(e instanceof PluresError ? e.message : "Couldn't reach Plures. Check your connection and try again."); }
+  const todo = plan.by_hand.map((b) => `  ${dim("-")} ${b.title}\n    ${cyan(b.url)}`).join("\n");
+
+  if (print || (!process.stdout.isTTY && !yes)) {
+    if (plan.instructions) console.log(plan.instructions);
+    else console.log(`Plures has nothing to change in ${plan.app.name} yet. Tell the user what to do first, in their dashboard:\n\n${plan.by_hand.map((b) => `- ${b.title}: ${b.url}`).join("\n")}\n\nChange nothing in this project.`);
+    return;
+  }
+  console.log(`\n${bold(`Improve ${plan.app.name} with what Plures has learned`)}\n`);
+  if (!plan.instructions) {
+    console.log(`  Nothing to change in your code yet. Plures learns from the people who answer your agent.\n  Do these first, then run ${cyan(again)} again:\n\n${todo}\n`);
+    return;
+  }
+  const c = plan.counts, n = (x: number, one: string, many = `${one}s`) => `${x} ${x === 1 ? one : many}`;
+  const lines = [
+    c.standards ? `Make the prompt follow ${bold(n(c.standards, "standard"))} your team approved` : "",
+    c.audit ? `Fix ${bold(n(c.audit, "decision"))} people overruled or questioned in your audit` : "",
+    c.settled ? `Add use_precedent to ${bold(n(c.settled, "question"))} people have settled` : "",
+    c.split ? `Pass more context on ${bold(n(c.split, "question"))} people split on` : "",
+  ].filter(Boolean);
+  console.log(`  This will change your prompt and code to:\n`);
+  lines.forEach((l, i) => console.log(`  ${dim(String(i + 1).padStart(2))}  ${l}`));
+  for (const kind of ["standard", "audit", "settled", "split"] as const) {
+    const fs = plan.findings.filter((f) => f.kind === kind).slice(0, 3);
+    if (fs.length) console.log(`\n  ${dim(kind === "standard" ? "Standards" : kind === "audit" ? "From your audit" : kind === "settled" ? "Settled" : "Split")}\n${fs.map((f) => `    ${dim("-")} ${f.title.length > 100 ? `${f.title.slice(0, 99)}…` : f.title}`).join("\n")}`);
+  }
+  console.log(`\n  ${dim(`The full list: ${again} --print`)}\n  ${dim("It runs on your machine. Your code is not sent to Plures.")}\n  ${dim("Changes go on a new branch. Nothing is pushed.")}\n`);
+  if (todo) console.log(`  Only you can do these, in your dashboard:\n\n${todo}\n`);
+  await handOff({ again, instructions: plan.instructions, question: "Let Claude Code make these changes on a new branch?", yes, branch: "improve",
+    message: `Improve ${plan.app.name} from Plures: ${[c.standards && n(c.standards, "standard"), c.audit && n(c.audit, "audit finding"), c.settled && n(c.settled, "settled question"), c.split && n(c.split, "split question")].filter(Boolean).join(", ")}`, live: plan.urls.agent });
 }
 
 // The question people grade has to exist before outputs can be sent to it. Creating it changes
@@ -541,10 +593,11 @@ Don't run the app or tests, and never include secrets or customer data in ${DIAG
 async function main() {
   const [cmd, sub, arg] = argv;
   if (cmd === "init") return init();
+  if (cmd === "improve") return improve();
   if (cmd === "check" && sub === "add") return checkAdd(arg);
   if (cmd === "drift" && sub === "fix") return driftFix(arg);
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures init [--app <id>]         set this project up: shows every change, asks, then applies it\n  npx plures init --print              print the same plan as instructions for any coding agent\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n  npx plures drift fix <case>          find why quality fell and fix it, on a new branch\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures init [--app <id>]         set this project up: shows every change, asks, then applies it\n  npx plures init --print              print the same plan as instructions for any coding agent\n  npx plures improve [--app <id>]      improve your agent from your standards, audit and settled questions\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n  npx plures drift fix <case>          find why quality fell and fix it, on a new branch\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);

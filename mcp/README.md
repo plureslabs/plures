@@ -83,6 +83,8 @@ Set `route: "team"` to send a decision straight to your own team instead of veri
 
 **`get_setup_plan`**, **`set_check`**: ask your coding agent to "set this app up with Plures". `get_setup_plan` returns the plan `npx plures init` shows, as instructions: the checks that are turned on and where each goes, the line that sends outputs to be graded, and the line that logs answers. `set_check` turns a suggested check on, dismisses it or puts it back; the agent asks you first.
 
+**`get_improve_plan`**: ask your coding agent to "improve this agent with what Plures has learned". It returns the plan `npx plures improve` shows, as instructions: the team's standards the prompt should follow, the decisions an audit found wrong, the questions people settled (add `use_precedent`) and the ones they split on (pass more context). Reading it changes nothing.
+
 **`get_mapping_guide`**, **`submit_agent_map`**, **`get_agent_map`**: ask your coding agent to "map this app for Plures". It reads the guide, reads your code where it runs, and sends Plures only the map: the steps, the actions with consequences, and a drafted check for each place a person should look. Open the map in your dashboard to try each check and add it. With a key, `get_mapping_guide` includes the app's Map also note.
 
 **`add_check`**, **`get_map_versions`**, **`restore_map_version`**, **`set_map_focus`**: add your own check at any step (live at once, kept through new maps), list the map's versions and restore one (as a new version, so it can be undone), and tell the next map where else to look.
