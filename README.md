@@ -101,6 +101,11 @@ npx skills add plureslabs/plures
 - [OpenAI Agents SDK](examples/openai-agents/refund_agent.py): an `ask_verified_humans` function tool
 - [Vercel AI SDK](examples/vercel-ai-sdk/askHumans.ts): an `askHumans` tool for `generateText` and `streamText`
 - [MCP clients](examples/mcp-clients): Claude Desktop, Claude Code, Cursor, VS Code
+- [CrewAI](examples/crewai/refund_crew.py): an "Ask verified humans" tool for a crew that runs unattended
+- [n8n](examples/n8n): HTTP Request, Wait and IF nodes, no community node needed
+- Hosted MCP server, nothing to install: `https://plures.si/mcp` with `Authorization: Bearer pk_test_...`
+
+Every integration, with a page each: [plures.si/integrations](https://plures.si/integrations).
 
 ## How it works
 
