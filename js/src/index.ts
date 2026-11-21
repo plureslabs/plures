@@ -307,6 +307,8 @@ export type SetupPlan = {
   object: "setup_plan"; app: { id: string; name: string; default: boolean }; mapped: boolean;
   checks: { id: string; step: string; where: string | null; why: string; code: string | null }[]; suggested: number;
   quality: { rubric: string; question: string; options: string[]; exists: boolean }; answers: boolean;
+  /** The language the snippets are in. */ language?: "js" | "python";
+  /** What has to be sorted out in Plures before the checks can work. */ warnings?: { text: string; url: string }[];
   urls: { agent: string; checks: string; map: string; keys: string }; instructions: string;
 };
 /** What to change in an agent from what people decided, from `plures.apps.improve(app)`. */
@@ -326,7 +328,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.34.0";
+export const VERSION = "1.34.1";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;

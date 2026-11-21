@@ -66,7 +66,7 @@ async function upload(file: string) {
     console.log(`${dim("Changes:")} ${[c.added.length ? `${c.added.length} new` : "", c.renamed.length ? `${c.renamed.length} renamed, checks kept` : "", c.removed.length ? `${c.removed.length} removed` : ""].filter(Boolean).join(", ") || "no new actions"}`);
     for (const r of c.risky) console.log(`  ${coral("no check")}  ${r.label} ${dim(`score ${r.score}: ${r.why.join("; ")}`)}`);
   }
-  if (fancy) drawMap(m, m.url ?? `${base}/dashboard/apps/${m.app}/map`);
+  if (fancy) drawMap(m, m.url ?? `${base}/dashboard/agents/${m.app}/map`);
   else report(m);
 }
 
@@ -84,7 +84,7 @@ function report(m: StoredAgentMap) {
   }
   for (const cp of m.checkpoints.filter((x) => nodes.get(x.at)?.kind !== "action" && x.status !== "dismissed"))
     console.log(`  ${violet("suggested")}  ${(nodes.get(cp.at)?.label ?? cp.at).padEnd(26)} ${dim(cp.why)}`);
-  console.log(`\nVersion ${m.version}. Open ${bold(m.url ?? `${base}/dashboard/apps/${m.app}/map`)}`);
+  console.log(`\n${m.version ? `Version ${m.version}. ` : ""}Open ${bold(m.url ?? `${base}/dashboard/agents/${m.app}/map`)}`);
 }
 
 function hasClaude() {
@@ -133,7 +133,7 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     childEnv.ANTHROPIC_API_KEY = run.token;
     console.log(dim(run.free ? "Plures is mapping this repo. Your first map is free." : `Plures is mapping this repo, at most $${(run.max_cents / 100).toFixed(2)} from your credit.`));
   }
-  const pageUrl = `${base}/dashboard/apps/${encodeURIComponent(app)}/map`;
+  const pageUrl = `${base}/dashboard/agents/${encodeURIComponent(app)}/map`;
   if (fancy) {
     banner(app, "Claude Code reads this repo on your machine for the Plures oversight engine. Only file names and the map go to Plures.");
     if (key && !noOpen && await openBrowser(pageUrl)) console.log(`  ${dim("Watch it live in your browser:")} ${cyan(pageUrl)}\n`);
@@ -220,7 +220,7 @@ async function workflow() {
   writeFileSync(path, await r.text());
   console.log(`${bold("Wrote " + path)}: maps this repo on every push to ${b}.\n
 Then add a repository secret (Settings, Secrets and variables, Actions):
-  ${cyan("PLURES_MAP_KEY")}      a map key: ${dim(`${base}/dashboard/apps/${app}/map`)} or ${dim("POST /api/v1/apps/" + app + "/map_keys")}
+  ${cyan("PLURES_MAP_KEY")}      a map key: ${dim(`${base}/dashboard/agents/${app}/map`)} or ${dim("POST /api/v1/apps/" + app + "/map_keys")}
 Optional: ${cyan("ANTHROPIC_API_KEY")}, or ${cyan("CLAUDE_CODE_OAUTH_TOKEN")} from ${dim("claude setup-token")}, to map on your own key for free.
 Without it Plures maps it: the first map is free.
 \nOr let Plures do all of this: ${bold("npx plures map github connect")}.`);
@@ -255,7 +255,7 @@ async function github(action: string | undefined, arg: string | undefined) {
         console.log(dim("This repo's map workflow is from before Map now. Updating it, which merges a small change to the workflow file."));
         r = await p.github.run(app, { update: true });
       }
-      const url = `${base}/dashboard/apps/${encodeURIComponent(app)}/map`;
+      const url = `${base}/dashboard/agents/${encodeURIComponent(app)}/map`;
       console.log(`${bold("Mapping now on GitHub.")} Watch it build: ${cyan(url)}`);
       if (fancy && !noOpen) await openBrowser(url);
       return void r;
@@ -398,6 +398,11 @@ ${dim("Test keys cost nothing and reach no real people.")}`);
     console.log(`  Plures found ${plan.suggested} ${plan.suggested === 1 ? "place" : "places"} a person should check, and none is turned on yet.\n  Choose them here, then run ${cyan(again)} again:\n\n    ${cyan(plan.urls.checks)}\n`);
     if (!noOpen) await openBrowser(plan.urls.checks).catch(() => false);
     return;
+  }
+  if (plan.warnings?.length) {
+    console.log(`  ${coral("Sort these out in Plures first, or the checks below will fail:")}\n`);
+    for (const w of plan.warnings) console.log(`  ${dim("-")} ${w.text}\n    ${cyan(w.url)}`);
+    console.log("");
   }
   console.log(`  This will change your code in these places:\n`);
   let n = 0;
