@@ -15,7 +15,7 @@ import { spawnSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { relative, isAbsolute } from "node:path";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { Plures, PluresError, VERSION, type StoredAgentMap } from "./index.js";
+import { Plures, PluresError, VERSION, type SetupPlan, type StoredAgentMap } from "./index.js";
 import { banner, drawMap, fancy, liveLine, openBrowser } from "./term.js";
 
 const argv = process.argv.slice(2);
@@ -353,13 +353,6 @@ ${cp.code}
 // makes the changes on this machine, on a new branch, and nothing is pushed. Run by a coding agent
 // (no terminal attached) or with --print, it prints the plan as instructions for that agent.
 
-type SetupPlan = {
-  app: { id: string; name: string; default: boolean }; mapped: boolean;
-  checks: { id: string; step: string; where: string | null; why: string; code: string | null }[];
-  suggested: number; quality: { rubric: string; question: string; options: string[]; exists: boolean };
-  answers: boolean; urls: { agent: string; checks: string; map: string; keys: string }; instructions: string;
-};
-
 function ask(question: string): Promise<boolean> {
   return new Promise((resolve) => {
     process.stdout.write(question);
@@ -380,12 +373,12 @@ async function init() {
 ${dim("Test keys cost nothing and reach no real people.")}`);
     process.exit(1);
   }
-  const res = await fetch(`${base}/api/v1/apps/${encodeURIComponent(app)}/setup`, { headers: { authorization: `Bearer ${key}`, "user-agent": `plures-cli/${VERSION}` } }).catch(() => null);
-  if (!res) die("Couldn't reach Plures. Check your connection and try again.");
-  const body = await res.json().catch(() => null) as (SetupPlan & { error?: { message?: string } }) | null;
-  if (!res.ok || !body?.instructions) die(body?.error?.message ?? `Plures answered ${res.status}. Is the key right, and does the app ${app} exist?`);
-  const plan = body as SetupPlan;
+  let plan: SetupPlan;
+  try { plan = await client().apps.setup(app); }
+  catch (e) { die(e instanceof PluresError ? e.message : "Couldn't reach Plures. Check your connection and try again."); }
 
+  // Only create the question people grade (a coding agent following the printed plan asks for this).
+  if (argv.includes("--quality")) { await ensureQuality(plan); if (plan.quality.exists) console.log(`People already grade: "${plan.quality.question}"`); return; }
   // A coding agent ran this, or the developer asked for the instructions: print them and stop.
   // Nothing is changed on Plures or here.
   if (print || (!process.stdout.isTTY && !yes)) {
@@ -393,7 +386,6 @@ ${dim("Test keys cost nothing and reach no real people.")}`);
     if (!plan.quality.exists) console.log(`Before step 3 works, the question people grade has to exist. Create it by running:\n\n    ${again} --quality\n`);
     return;
   }
-  if (argv.includes("--quality")) { await ensureQuality(plan); return; }
 
   console.log(`\n${bold(`Plures setup for ${plan.app.name}`)}\n`);
   if (!plan.mapped) {

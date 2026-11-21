@@ -142,6 +142,8 @@ With a test key, set `metadata.test_outcome` to `unanimous`, `most`, `split`, `t
 
 ## Checks from an agent map
 
+To set a whole project up in one go, run `npx plures init` in the repo (add `--app <id>` for an app that is not the default). Run by you, it prints the app's setup plan as instructions: the checks the developer turned on and where each goes, the line that sends outputs to be graded, and the line that logs answers. Follow them, and tell the developer what you are about to change first. With the MCP server connected, `get_setup_plan` returns the same plan and `set_check` turns a suggested check on once the developer agrees.
+
 For a whole app, run `npx plures map` in the repo: the developer's own coding agent reads the code and sends Plures only a map of the steps and the actions with consequences, with a suggested check for each. Then one line guards each action, and the question, options and who decides live on Plures, not in code:
 
 ```ts

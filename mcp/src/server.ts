@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-export const VERSION = "1.14.0";
+export const VERSION = "1.15.0";
 
 export type ServerOptions = {
   /** A Plures API key (pk_test_ or pk_live_). Without one, every tool explains how to get one. */
@@ -601,6 +601,39 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     try {
       const r = await api("PATCH", `/api/v1/apps/${encodeURIComponent(id)}`, { map_focus: focus.trim() ? focus : null });
       return { content: [{ type: "text" as const, text: r.map_focus ? `Saved. The next map of ${id} also looks at: ${r.map_focus}` : `Cleared the Map also note for ${id}.` }] };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("get_setup_plan", {
+    title: "Get an app's setup plan",
+    description: "Returns what it takes to set an app up in this project, as instructions you can follow: the checks the developer turned on and where each goes in the code, the line that sends outputs to be graded, and the line that logs answers. It is the same plan `npx plures init` shows. Reading it changes nothing. Tell the user what you are about to change before you edit their code.",
+    inputSchema: { app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app") },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  }, async ({ app }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try {
+      const p = await api("GET", `/api/v1/apps/${encodeURIComponent(id)}/setup`);
+      const note = p.quality?.exists ? "" : `\n\nThe question people grade ("${p.quality?.question}") does not exist yet. It is created when the user runs \`npx plures init${id !== "default" ? ` --app ${id}` : ""} --quality\`; ask them to run it before step 3 can work.`;
+      return { content: [{ type: "text" as const, text: String(p.instructions ?? "") + note }], structuredContent: { app: p.app, mapped: p.mapped, checks: p.checks, suggested: p.suggested, quality: p.quality, answers: p.answers, urls: p.urls } };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("set_check", {
+    title: "Turn a suggested check on or off",
+    description: "Turns a check on an app's agent map on (added), dismisses it (dismissed), or puts it back to suggested. Turning one on saves its routing rule, so tasks the agent sends for it follow it; test keys reach no real people. Call get_agent_map first for the check ids. Ask the user before changing one.",
+    inputSchema: {
+      check: z.string().describe("The check's id, from get_agent_map"),
+      status: z.enum(["added", "dismissed", "suggested"]).describe("added turns it on, dismissed hides the suggestion, suggested puts it back"),
+      app: z.string().optional().describe("The app id. Default: PLURES_APP, then the default app"),
+    },
+    annotations: { readOnlyHint: false, idempotentHint: true, openWorldHint: true },
+  }, async ({ app, check, status }) => {
+    if (!KEY) return noKey();
+    const id = app ?? APP ?? "default";
+    try {
+      await api("PATCH", `/api/v1/apps/${encodeURIComponent(id)}/map/checkpoints/${encodeURIComponent(check)}`, { status });
+      return { content: [{ type: "text" as const, text: status === "added" ? `The check ${check} is on for ${id}. It starts working once the agent's code calls it; get_setup_plan says where that goes.` : status === "dismissed" ? `The check ${check} is dismissed for ${id}.` : `The check ${check} is back to suggested for ${id}.` }] };
     } catch (e) { return fail(e); }
   });
 
