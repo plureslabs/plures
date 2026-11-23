@@ -307,12 +307,13 @@ export type Release = { object: "release"; release: string; app: string; compare
 /** What it takes to set an app up, from `plures.apps.setup(app)`. */
 export type SetupPlan = {
   object: "setup_plan"; app: { id: string; name: string; default: boolean }; mapped: boolean;
-  checks: { id: string; step: string; where: string | null; why: string; code: string | null }[]; suggested: number;
+  checks: { id: string; step: string; where: string | null; why: string; code: string | null;
+    /** For sending one test check: what people are asked, who answers, and invented example data. */ question?: string | null; route?: "verifiers" | "team" | null; sample?: Record<string, string> | null }[]; suggested: number;
   /** The suggestions to turn on first, most important first. */ recommended?: { id: string; step: string; where: string | null; why: string }[];
   quality: { rubric: string; question: string; options: string[]; exists: boolean }; answers: boolean;
   /** The language the snippets are in. */ language?: "js" | "python";
   /** What has to be sorted out in Plures before the checks can work. */ warnings?: { text: string; url: string }[];
-  urls: { agent: string; checks: string; map: string; keys: string }; instructions: string;
+  urls: { agent: string; checks: string; map: string; keys: string; decisions?: string }; instructions: string;
 };
 /** What to change in an agent from what people decided, from `plures.apps.improve(app)`. */
 export type ImprovePlan = {
@@ -331,7 +332,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.35.1";
+export const VERSION = "1.36.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
