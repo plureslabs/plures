@@ -42,6 +42,8 @@ export function liveLine() {
   return {
     start() { out.write("\x1b[?25l"); draw(); timer = setInterval(draw, 80); },
     read(path: string) { count++; file = path; },
+    /** What it's doing between files (a search, a helper exploring), shown without counting a file. */
+    note(text: string) { file = text; },
     drawing() { phase = "drawing"; },
     stop() { if (timer) clearInterval(timer); timer = null; out.write("\r\x1b[K\x1b[?25h"); },
     get count() { return count; },

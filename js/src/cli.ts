@@ -192,6 +192,13 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
             reads++;
             queue.push({ path: f, tool: "Read" });
             if (ticker) ticker.read(f); else console.log(`  ${dim(String(reads).padStart(3))}  ${dim("reading")} ${f}`);
+          } else if (b.name === "Grep" || b.name === "Glob" || b.name === "Task" || b.name === "Agent") {
+            // Claude Code often searches, or sends a helper to explore, before it opens files. Without
+            // these the screen sat still for a minute. Only the search words are shown, nothing is sent.
+            const what = String((b.name === "Task" || b.name === "Agent" ? b.input?.description : b.input?.pattern) ?? "").replace(/\s+/g, " ").slice(0, 60);
+            if (!what) continue;
+            const verb = b.name === "Grep" ? "searching for" : b.name === "Glob" ? "listing" : "exploring:";
+            if (ticker) ticker.note(`${verb} ${what}`); else console.log(`       ${dim(verb)} ${what}`);
           } else if (b.name === "Write" && String(b.input?.file_path ?? "").endsWith(FILE)) {
             phase = "drawing";
             if (ticker) ticker.drawing(); else console.log(`\n  ${violet("drawing")}  the map`);
@@ -456,7 +463,7 @@ ${dim("Test keys cost nothing and reach no real people.")}`);
   console.log(`\n  ${dim("It runs on your machine. Your code is not sent to Plures.")}\n  ${dim("Changes go on a new branch. Nothing is pushed.")}\n  ${dim(key.startsWith("pk_test_") ? "This is a test key: it costs nothing and reaches no real people." : "This is a live key: checks reach real people and are charged.")}\n`);
 
   await handOff({ again, instructions: plan.instructions, question: "Let Claude Code make these changes on a new branch?", yes, before: () => ensureQuality(plan), branch: "setup",
-    message: `Set up Plures for ${plan.app.name}: ${plan.checks.length} ${plan.checks.length === 1 ? "check" : "checks"}, quality grading${plan.answers ? ", answer logging" : ""}`, live: plan.urls.agent });
+    message: `Set up Plures for ${plan.app.name}: ${plan.checks.length} ${plan.checks.length === 1 ? "check" : "checks"}`, live: plan.urls.agent });
 }
 
 // The last part of init and improve: with Claude Code installed and a yes, Claude Code makes the
