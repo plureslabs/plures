@@ -278,7 +278,9 @@ export type Mix = { unanimous?: number; most?: number; split?: number; tie?: num
 export type TestMix = { object: "test_mix"; mix: Mix | null; to_team_percent: number };
 
 /** Prepaid credit for live tasks, in US cents. */
-export type MapNode = { id: string; label: string; kind: "input" | "model" | "tool" | "action" | "data" | "output" | "human"; file?: string | null; line?: number | null; risk?: "low" | "medium" | "high" | null; note?: string | null };
+export type MapNode = { id: string; label: string; kind: "input" | "model" | "tool" | "action" | "data" | "output" | "human"; file?: string | null; line?: number | null; risk?: "low" | "medium" | "high" | null;
+  /** What an action really does, read from the code. The oversight engine goes by this over the words of the label. */
+  effect?: "money" | "message" | "notify" | "record" | "access" | "external" | "none" | null; note?: string | null };
 export type MapDraft = { question: string; options: string[]; show?: string[]; hide?: string[]; instructions?: string | null; route?: "verifiers" | "team"; team?: string | null; verifiers?: number; escalate_below?: number | null; example?: string | null };
 export type MapCheckpoint = { id?: string; title?: string | null; at: string; why: string; category?: string; when?: string | null; status?: "suggested" | "added" | "dismissed"; draft?: MapDraft | null; priority?: 1 | 2 | null; by?: "engine" | "you";
   stats?: { tasks: number; done: number; agreement: number | null; to_team: number; internal: number; med_ms: number | null } };
@@ -306,6 +308,7 @@ export type Release = { object: "release"; release: string; app: string; compare
 export type SetupPlan = {
   object: "setup_plan"; app: { id: string; name: string; default: boolean }; mapped: boolean;
   checks: { id: string; step: string; where: string | null; why: string; code: string | null }[]; suggested: number;
+  /** The suggestions to turn on first, most important first. */ recommended?: { id: string; step: string; where: string | null; why: string }[];
   quality: { rubric: string; question: string; options: string[]; exists: boolean }; answers: boolean;
   /** The language the snippets are in. */ language?: "js" | "python";
   /** What has to be sorted out in Plures before the checks can work. */ warnings?: { text: string; url: string }[];
@@ -328,7 +331,7 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.34.1";
+export const VERSION = "1.35.0";
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;

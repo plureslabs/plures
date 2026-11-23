@@ -35,7 +35,7 @@ function keyFromEnvFiles(): string | undefined {
   }
   return undefined;
 }
-const key = flag("key") ?? process.env.PLURES_API_KEY ?? keyFromEnvFiles();
+const key = (flag("key") ?? process.env.PLURES_API_KEY ?? keyFromEnvFiles())?.replace(/\s+/g, "");
 const base = flag("base-url") ?? process.env.PLURES_BASE_URL ?? "https://plures.si";
 const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const c = (code: string) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
@@ -87,6 +87,14 @@ function report(m: StoredAgentMap) {
   console.log(`\n${m.version ? `Version ${m.version}. ` : ""}Open ${bold(m.url ?? `${base}/dashboard/agents/${m.app}/map`)}`);
 }
 
+// A long token copied from a terminal often carries a line break from where it wrapped, and Claude
+// Code then fails with a confusing error. None of these can hold whitespace, so take it out.
+function cleanEnv(): NodeJS.ProcessEnv {
+  const e: NodeJS.ProcessEnv = { ...process.env };
+  for (const k of ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"]) if (e[k]) e[k] = e[k]!.replace(/\s+/g, "");
+  return e;
+}
+
 function hasClaude() {
   return spawnSync(process.platform === "win32" ? "where" : "which", ["claude"], { stdio: "ignore" }).status === 0;
 }
@@ -123,7 +131,7 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
     else if (main && est.engine_fee.cents) console.log(dim(`Plures engine: about $${(est.engine_fee.cents / 100).toFixed(2)} (${est.engine_fee.steps} steps at ${est.engine_fee.per_step_cents}¢), from your credit when the map uploads.`));
   }
   // In CI with no Anthropic key of its own, Plures maps it: a metered run through Plures.
-  const childEnv: NodeJS.ProcessEnv = { ...process.env };
+  const childEnv: NodeJS.ProcessEnv = cleanEnv();
   const ownClaude = Boolean(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN);
   if (!ownClaude && (process.env.CI || argv.includes("--plures-claude"))) {
     let run: { token: string; base_url: string; free: boolean; max_cents: number };
@@ -199,12 +207,19 @@ Then run: ${cyan(`npx plures map upload${app !== "default" ? ` --app ${app}` : "
   if (!wrote()) code = await runClaude(["-p", nudge, "--continue"]);
   clearInterval(tick);
   ticker?.stop();
-  if (result && !fancy) console.log(`\n${result.trim()}\n`);
   if (fancy) console.log(`  ${cyan("✓")} ${reads} ${reads === 1 ? "file" : "files"} read. ${dim("Sending the map to Plures. No source code is sent.")}`);
   const ok = code === 0 && wrote();
   if (!ok) { phase = "failed"; await flush(); }
   else await flush();
-  if (!ok) die(`Claude Code didn't write ${FILE}${process.env.CI ? ". This run costs nothing." : `. Ask it directly, then run npx plures map upload.`}`);
+  // Claude Code's closing words are for when it failed (a sign in problem, a refusal): they say why.
+  // On success they only repeat what the map below shows.
+  if (!ok) {
+    if (result.trim()) console.error(`\n${dim("Claude Code said:")} ${result.trim().slice(0, 600)}\n`);
+    die(/auth|token|api key|log ?in|credit/i.test(result)
+      ? "Claude Code couldn't sign in, so nothing was mapped. Check that it works on its own (run claude in this folder), then run this again."
+      : `Claude Code didn't write ${FILE}${process.env.CI ? ". This run costs nothing." : `. Ask it directly, then run npx plures map upload.`}`);
+  }
+  if (!fancy) console.log("");
   await upload(FILE);
 }
 
@@ -390,14 +405,43 @@ ${dim("Test keys cost nothing and reach no real people.")}`);
   }
 
   console.log(`\n${bold(`Plures setup for ${plan.app.name}`)}\n`);
+  const refetch = async () => { try { plan = await client().apps.setup(app); } catch (e) { die(e instanceof PluresError ? e.message : "Couldn't reach Plures. Check your connection and try again."); } };
+  // One command does all of it. First the map, so Plures knows where a person should check.
   if (!plan.mapped) {
-    console.log(`  ${plan.app.name} has no map yet. Map it first, so Plures knows where a person should check:\n\n    ${cyan(`npx plures map${app !== "default" ? ` --app ${app}` : ""}`)}\n\n  Then run ${cyan(again)} again.\n`);
-    return;
+    if (!hasClaude()) {
+      console.log(`  ${plan.app.name} has no map yet. Map it first, so Plures knows where a person should check:\n\n    ${cyan(`npx plures map${app !== "default" ? ` --app ${app}` : ""}`)}\n\n  Then run ${cyan(again)} again.\n`);
+      return;
+    }
+    console.log(`  ${bold("Step 1 of 3: map it.")} Claude Code reads this project and draws what its agents do, so Plures\n  knows where a person should check. It reads on your machine and changes nothing in your code.\n`);
+    if (!yes && !(await ask(`  Map it now? ${dim("[Y/n]")} `))) { console.log(`\n  Nothing was changed. When you're ready: ${cyan(again)}\n`); return; }
+    await map();
+    await refetch();
+    if (!plan.mapped) die(`The map didn't reach Plures. Run ${again} again.`);
+    console.log("");
   }
+  // Then which checks. Plures recommends the few that matter most; the rest wait in the dashboard.
   if (!plan.checks.length && plan.suggested) {
-    console.log(`  Plures found ${plan.suggested} ${plan.suggested === 1 ? "place" : "places"} a person should check, and none is turned on yet.\n  Choose them here, then run ${cyan(again)} again:\n\n    ${cyan(plan.urls.checks)}\n`);
-    if (!noOpen) await openBrowser(plan.urls.checks).catch(() => false);
-    return;
+    const rec = plan.recommended ?? [];
+    const rest = plan.suggested - rec.length;
+    if (!rec.length) {
+      console.log(`  Plures found ${plan.suggested} ${plan.suggested === 1 ? "place" : "places"} a person should check, and none is turned on yet.\n  Choose them here, then run ${cyan(again)} again:\n\n    ${cyan(plan.urls.checks)}\n`);
+      if (!noOpen) await openBrowser(plan.urls.checks).catch(() => false);
+      return;
+    }
+    console.log(`  ${bold("Step 2 of 3: choose the checks.")} Plures found ${plan.suggested} ${plan.suggested === 1 ? "place" : "places"} a person could check and recommends ${rec.length === 1 ? "this one" : `these ${rec.length}`}:\n`);
+    for (const [i, r] of rec.entries()) console.log(`  ${dim(String(i + 1).padStart(2))}  ${bold(r.step)}${r.where ? dim(`   ${r.where}`) : ""}\n      ${dim(r.why)}`);
+    console.log(`\n  ${dim(`Turning one on changes nothing until the code below is added. ${rest > 0 ? `The other ${rest} ${rest === 1 ? "is" : "are"} here, to add any time:` : "Change them any time:"}`)}\n  ${dim(plan.urls.checks)}\n`);
+    if (!yes && !(await ask(`  Turn ${rec.length === 1 ? "it" : "these"} on? ${dim("[Y/n]")} `))) {
+      console.log(`\n  Nothing was turned on. Choose your own here, then run ${cyan(again)} again:\n\n    ${cyan(plan.urls.checks)}\n`);
+      if (!noOpen) await openBrowser(plan.urls.checks).catch(() => false);
+      return;
+    }
+    for (const r of rec) {
+      try { await client().maps.setCheckpoint(app, r.id, "added"); }
+      catch (e) { die(`Couldn't turn on "${r.step}": ${e instanceof PluresError ? e.message : String(e)}`); }
+    }
+    await refetch();
+    console.log(`  ${cyan("✓")} ${rec.length} ${rec.length === 1 ? "check" : "checks"} turned on.\n\n  ${bold("Step 3 of 3: add them to your code.")}\n`);
   }
   if (plan.warnings?.length) {
     console.log(`  ${coral("Sort these out in Plures first, or the checks below will fail:")}\n`);
@@ -424,7 +468,9 @@ async function handOff(o: { again: string; instructions: string; question: strin
   }
   const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
   if (git("rev-parse", "--is-inside-work-tree").status !== 0) die("This folder isn't a git repository. Run it in your project, so the changes can go on a branch you review.");
-  if (git("status", "--porcelain").stdout.trim()) die("This repo has changes that aren't committed. Commit or stash them first, so the Plures changes stay separate and easy to review.");
+  // The map file this command just wrote is ours, and goes into the same commit.
+  const others = git("status", "--porcelain").stdout.split("\n").filter((l) => l.trim() && l.slice(3).trim().replace(/^"|"$/g, "") !== FILE);
+  if (others.length) die(`This repo has changes that aren't committed:\n\n${others.slice(0, 8).map((l) => `    ${l.trim()}`).join("\n")}${others.length > 8 ? `\n    and ${others.length - 8} more` : ""}\n\nCommit or stash them first, so the Plures changes stay separate and easy to review. Then run ${o.again} again: it picks up where it stopped.`);
   if (!o.yes && !(await ask(`  ${o.question} ${dim("[Y/n]")} `))) {
     console.log(`\n  Nothing was changed. To see the full instructions: ${cyan(`${o.again} --print`)}\n`);
     return;
@@ -433,10 +479,10 @@ async function handOff(o: { again: string; instructions: string; question: strin
   console.log(`\n  ${dim("Claude Code is making the changes. It can read and edit files here, and run nothing.")}\n`);
   const prompt = `${o.instructions}\n\nMake these changes in the current directory now. You can read and edit files; you can't run commands, so add dependencies to the manifest and don't run installers. Change as little as possible.`;
   const code = await new Promise<number>((resolve) => {
-    const p = spawn("claude", ["-p", prompt, "--allowedTools", "Read,Grep,Glob,Edit,Write"], { stdio: ["ignore", "inherit", "inherit"] });
+    const p = spawn("claude", ["-p", prompt, "--allowedTools", "Read,Grep,Glob,Edit,Write"], { stdio: ["ignore", "inherit", "inherit"], env: cleanEnv() });
     p.on("close", (x) => resolve(x ?? 1)); p.on("error", () => resolve(1));
   });
-  if (code !== 0 || !git("status", "--porcelain").stdout.trim()) die(`Claude Code didn't change any files, so there's nothing to review. To do it with another coding agent: ${o.again} --print`);
+  if (code !== 0 || !git("status", "--porcelain").stdout.split("\n").some((l) => l.trim() && l.slice(3).trim() !== FILE)) die(`Claude Code didn't change any files, so there's nothing to review. To do it with another coding agent: ${o.again} --print`);
   const br = `plures/${o.branch}-${Date.now().toString(36)}`;
   for (const a of [["checkout", "-b", br], ["add", "-A"], ["commit", "-m", o.message]]) {
     const r = git(...a);
