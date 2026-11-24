@@ -13,6 +13,8 @@ Use it as the human in the loop (HITL) step for the calls where a wrong answer c
 
 [![Plures MCP server](https://mcprush.com/badge/plures-mcp/card.svg)](https://mcprush.com/to/plures-mcp?ref=badge)
 
+[![plureslabs/plures MCP server](https://glama.ai/mcp/servers/plureslabs/plures/badges/score.svg)](https://glama.ai/mcp/servers/plureslabs/plures)
+
 Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys answer instantly without reaching real people, so you can build the whole flow first.
 
 ## Quickstart
