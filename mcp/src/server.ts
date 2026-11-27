@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-export const VERSION = "1.17.0";
+export const VERSION = "1.18.0";
 
 export type ServerOptions = {
   /** A Plures API key (pk_test_ or pk_live_). Without one, every tool explains how to get one. */
@@ -275,13 +275,13 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       const removed = Object.values(a.removed ?? {}).reduce((n, x) => n + x, 0);
       return { content: [{ type: "text" as const, text: `Sent ${a.rows} decisions to Plures for ${a.paid ? "an" : "a free"} ${a.kind === "judgment" ? "judgment audit (would customers be happy with it)" : "audit (was each call right)"}. ${cost}` +
         `${removed ? `${removed} personal details were removed. ` : ""}${a.dropped ? `Only the first 50 rows were kept. ` : ""}` +
-        `A person at Plures reviews it first, then it is graded. Audit ${a.id}. Check it with get_audit_report or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
+        `${a.paid ? "A person at Plures may review it first, then it is graded." : "Plures Pulse grades a free audit within minutes."} Audit ${a.id}. Check it with get_audit_report or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
     } catch (e) { return fail(e); }
   });
 
   server.registerTool("get_audit_report", {
     title: "Read the audit report",
-    description: "Reads the developer's Plures audit: where it is, and once people are answering, how many decisions they called right, wrong, unclear or split, with the ones they disagreed with listed first. " +
+    description: "Reads the developer's Plures audit: where it is, and once it is graded, how many decisions were called right, wrong, unclear or split, the ones flagged listed first with the reason, and how to improve: the changes that would have caught them. Use it to propose changes to the agent's own instructions. " +
       "For judgment audits: right means people would be happy with it, wrong means not happy, unclear means it needs changes.",
     inputSchema: { audit_id: z.string().max(60).optional().describe("Which audit. Default: the account's audit") },
     annotations: { readOnlyHint: true, openWorldHint: true },
@@ -290,8 +290,9 @@ export function createServer(opts: ServerOptions = {}): McpServer {
     try {
       const a = await api("GET", audit_id ? `/api/v1/audits/${encodeURIComponent(audit_id)}` : "/api/v1/audits") as { id: string; kind: string; status: string; rows: number; dashboard_url: string; mode?: string;
         summary: { total: number; graded: number; right: number; wrong: number; unclear: number; split: number; waiting: number; human_reviewed?: number; system_graded?: number; sample?: { checked: number; agreed: number } | null } | null;
-        data: { n: number; input: string; decision: string; verdict: string; label: string; votes: Record<string, number> }[] };
-      if (!a.summary) return { content: [{ type: "text" as const, text: a.status === "declined" ? `Audit ${a.id} was declined. Write to hello@plures.si.` : `Audit ${a.id} (${a.rows} decisions) is with a person at Plures for review; nobody has graded it yet. Check again later or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
+        graded_by?: string; improvements?: { area: string; title: string; detail: string; rows: number[] }[];
+        data: { n: number; input: string; decision: string; verdict: string; label: string; votes: Record<string, number>; reason?: string | null }[] };
+      if (!a.summary) return { content: [{ type: "text" as const, text: a.status === "declined" ? `Audit ${a.id} was declined. Write to hello@plures.si.` : `Audit ${a.id} (${a.rows} decisions) is waiting to be graded. Check again in a few minutes or at ${a.dashboard_url}.` }], structuredContent: a as unknown as Record<string, unknown> };
       const s = a.summary;
       const j = a.kind === "judgment";
       const head = `${a.status === "ready" ? "Finished" : `In progress: ${s.graded} of ${s.total} graded`}. ` +
@@ -301,8 +302,11 @@ export function createServer(opts: ServerOptions = {}): McpServer {
         ? `Graded the hybrid way: a person reviewed ${s.human_reviewed} of the decisions and the system graded the other ${s.system_graded ?? 0}.${s.sample?.checked ? ` On the ${s.sample.checked} the system was sure of that a person checked anyway, the person agreed on ${s.sample.agreed}.` : ""}`
         : null;
       const look = a.data.filter((r) => r.verdict === "wrong" || r.verdict === "split").slice(0, 15)
-        .map((r) => `- Row ${r.n}, ${r.label}: saw "${r.input.slice(0, 160)}", did "${r.decision.slice(0, 120)}"`);
-      return { content: [{ type: "text" as const, text: [head, ...(how ? [how] : []), ...(look.length ? [j ? "Where people weren't happy or split:" : "Where people disagreed with the agent or split:", ...look] : []), `Full report: ${a.dashboard_url}`].join("\n") }], structuredContent: a as unknown as Record<string, unknown> };
+        .map((r) => `- Row ${r.n}, ${r.label}: saw "${r.input.slice(0, 160)}", did "${r.decision.slice(0, 120)}"${r.reason ? `. Why: ${r.reason.slice(0, 200)}` : ""}`);
+      const pulse = a.graded_by === "pulse" ? "Graded by Plures Pulse. No person has checked these yet, so treat it as where to look first." : null;
+      // What to change so the agent stops making these calls. Offer to apply them; the developer decides.
+      const fixes = (a.improvements ?? []).map((f) => `- [${f.area}] ${f.title}: ${f.detail} (rows ${f.rows.join(", ")})`);
+      return { content: [{ type: "text" as const, text: [head, ...(pulse ? [pulse] : []), ...(how ? [how] : []), ...(fixes.length ? ["How to improve (propose these changes to the agent's instructions, data or process, and apply them only when the developer agrees):", ...fixes] : []), ...(look.length ? [j ? "Where people weren't happy or split:" : "Where people disagreed with the agent or split:", ...look] : []), `Full report: ${a.dashboard_url}`].join("\n") }], structuredContent: a as unknown as Record<string, unknown> };
     } catch (e) { return fail(e); }
   });
 
