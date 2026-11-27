@@ -5,7 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { Plures, PluresError, type Task } from "plures";
 
-export const VERSION = "1.16.1";
+export const VERSION = "1.17.0";
 
 export type ServerOptions = {
   /** A Plures API key (pk_test_ or pk_live_). Without one, every tool explains how to get one. */
@@ -140,7 +140,7 @@ export function createServer(opts: ServerOptions = {}): McpServer {
 
   const noKey = () => ({
     isError: true,
-    content: [{ type: "text" as const, text: opts.noKeyHint ?? "No Plures API key. Set PLURES_API_KEY in this MCP server's environment, or the API key in the Plures plugin settings. A free test key is at https://plures.si/?for=developers#join" }],
+    content: [{ type: "text" as const, text: opts.noKeyHint ?? "No Plures API key. Set PLURES_API_KEY in this MCP server's environment, or the API key in the Plures plugin settings. A free test key is at https://plures.si/signup" }],
   });
 
   // Waits for an answer, sending progress so clients that support it keep the call open.
@@ -303,6 +303,39 @@ export function createServer(opts: ServerOptions = {}): McpServer {
       const look = a.data.filter((r) => r.verdict === "wrong" || r.verdict === "split").slice(0, 15)
         .map((r) => `- Row ${r.n}, ${r.label}: saw "${r.input.slice(0, 160)}", did "${r.decision.slice(0, 120)}"`);
       return { content: [{ type: "text" as const, text: [head, ...(how ? [how] : []), ...(look.length ? [j ? "Where people weren't happy or split:" : "Where people disagreed with the agent or split:", ...look] : []), `Full report: ${a.dashboard_url}`].join("\n") }], structuredContent: a as unknown as Record<string, unknown> };
+    } catch (e) { return fail(e); }
+  });
+
+  server.registerTool("ask_pulse", {
+    title: "Ask Plures Pulse to decide a judgment call",
+    description: "Plures Pulse, an LLM as a judge, decides a judgment call the way the developer's team would: approve, edit (with the corrected amount), reject or ask_person. " +
+      "Use it right before an action a rule or a lookup can't settle: a refund, a credit, an exception, whether an answer is on policy. It reads the written policy you send, the team's closest past decisions, their playbook and the rules it learned from them, and answers in about three seconds. " +
+      "When it answers ask_person it isn't sure: call ask_humans (or ask_judgment) with the same case, and act on what people say. Their answer teaches Pulse. " +
+      "$0.03 per live decision after the account's first 500; free with a test key.",
+    inputSchema: {
+      question: z.string().min(3).max(2000).describe("The judgment call, worded as a question, with the figures that matter (amounts, days, counts)"),
+      context: z.string().max(8000).optional().describe("What you know about the case, as plain text"),
+      category: z.string().max(80).optional().describe("The kind of case, for example refunds. Send it so Pulse can use the rules it learned for that kind"),
+      policy: z.string().max(8000).optional().describe("The developer's written rules for this kind of case"),
+      client: z.string().max(120).optional().describe("The company's name"),
+      app: z.string().max(40).optional().describe("Which app this is for. Default: PLURES_APP"),
+    },
+    annotations: { readOnlyHint: false, openWorldHint: true },
+  }, async (p) => {
+    if (!KEY) return noKey();
+    const app = p.app ?? APP;
+    try {
+      const r = await api("POST", "/api/v1/pulse", { ...p, ...(app ? { app } : {}) }) as { decision: "approve" | "edit" | "reject" | "ask_person"; amount: number | null;
+        explanation: string; unsure: boolean; engine?: string; rule_used: string | null; precedents_used: number; playbook_used: boolean; charged_cents: number; mode: string };
+      const word = r.decision === "edit" ? `edit${r.amount != null ? ` to ${r.amount}` : ""}` : r.decision;
+      const read = [`${r.precedents_used} past ${r.precedents_used === 1 ? "decision" : "decisions"}`, ...(r.playbook_used ? ["the team's playbook"] : []), ...(r.rule_used ? ["a rule from the team's decisions"] : [])].join(", ");
+      const lines = [
+        r.unsure ? "Pulse isn't sure: ask_person. Send this case to people with ask_humans and act on their answer." : `Pulse decided: ${word}.`,
+        ...(r.explanation ? [r.explanation] : []),
+        ...(r.rule_used ? [`Rule used: ${r.rule_used}`] : []),
+        `It read ${read}. Mode: ${r.mode}. Charged: ${r.charged_cents} cents.`,
+      ];
+      return { content: [{ type: "text" as const, text: lines.join("\n") }], structuredContent: r as unknown as Record<string, unknown> };
     } catch (e) { return fail(e); }
   });
 

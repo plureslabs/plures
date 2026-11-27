@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-__version__ = "1.34.0"
+__version__ = "1.35.0"
 
 _UNSET = object()  # a keyword argument left out, as opposed to None
 __all__ = ["Plures", "PluresError", "PaymentRequiredError", "verify_webhook", "__version__"]
@@ -47,7 +47,7 @@ class Plures:
         self.payment = payment
         self._receipts = {}
         if not api_key and not payment:
-            raise ValueError("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join")
+            raise ValueError("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/signup")
         base_url = base_url or os.environ.get("PLURES_BASE_URL") or "https://plures.si"
         self.api_key = api_key
         self.base = base_url.rstrip("/")
@@ -145,6 +145,19 @@ class Plures:
     def get_audit(self, audit_id=None):
         """Your audit, with every row's verdict once people answer (the account's audit when no id)."""
         return self._req("GET", "/api/v1/audits" + ("/" + urllib.parse.quote(audit_id) if audit_id else ""))
+
+    def ask_pulse(self, question, context=None, category=None, policy=None, client=None, options=None, app=None):
+        """Plures Pulse, our LLM as a judge, decides a judgment call the way your team would.
+        Returns a dict with decision ("approve", "edit", "reject" or "ask_person"), amount (the
+        corrected amount on an edit), explanation, unsure, engine, rule_used, precedents_used,
+        playbook_used and charged_cents. Pulse reads your written policy (if you send it), your
+        team's closest past decisions, your playbook and the rules it learned from them. Call it
+        right before your agent acts. When unsure is True, send the case to people with verify();
+        their answer teaches Pulse. Answers in about three seconds. $0.03 per live decision after
+        your first 500; free with a test key."""
+        body = {k: v for k, v in {"question": question, "context": context, "category": category, "policy": policy,
+                                  "client": client, "options": options, "app": app}.items() if v is not None}
+        return self._req("POST", "/api/v1/pulse", body)
 
     def find_precedents(self, question, context=None, category=None, app=None, options=None, limit=None):
         """Searches your judgment graph: the closest past decisions people made for you on cases

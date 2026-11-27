@@ -1,6 +1,6 @@
 # plures-mcp
 
-An MCP server that gives any AI agent a human in the loop: an `ask_humans` tool that sends a decision to ID verified people and returns their consensus before the agent acts. Built on [Plures](https://plures.si).
+An MCP server that gives any AI agent your team's judgment. `ask_pulse` has Plures Pulse, our LLM as a judge, decide a judgment call the way your team would (approve, edit, reject or ask a person), and `ask_humans` sends the calls it isn't sure about to ID verified people or your own team and returns their consensus before the agent acts. Built on [Plures](https://plures.si).
 
 [![Plures MCP server](https://mcprush.com/badge/plures-mcp/card.svg)](https://mcprush.com/to/plures-mcp?ref=badge)
 
@@ -8,7 +8,7 @@ Works with Claude Desktop, Claude Code, Cursor, VS Code, and agent frameworks th
 
 ## Set up
 
-Get a free test key at [plures.si](https://plures.si/?for=developers#join), then add the server to your client:
+Get a free test key at [plures.si](https://plures.si/signup), then add the server to your client:
 
 ```json
 {
@@ -43,6 +43,16 @@ Embedding the tools in your own server: `import { createServer } from "plures-mc
 A `pk_test_` key answers instantly with a simulated result (always the first option, clearly marked as a test), so you can try the flow for free. A `pk_live_` key sends tasks to real verified people and is paid from prepaid credit at $0.20 per answer, more for recordings and videos by length. If credit runs out, the tool says so; add credit or turn on auto top up at plures.si/dashboard/billing.
 
 ## Tools
+
+**`ask_pulse`**: have Plures Pulse decide a judgment call. Use it right before an action a rule or a lookup can't settle: a refund, a credit, an exception, whether an answer is on policy.
+
+- `question` (required): the judgment call, with the figures that matter (amounts, days, counts)
+- `context`: what the agent knows about the case, as plain text
+- `category`: the kind of case, for example `refunds`, so Pulse can use the rules it learned for that kind
+- `policy`: your written rules for this kind of case
+- `client`: your company's name
+
+It answers `approve`, `edit` (with the corrected amount), `reject` or `ask_person`, with a short check of the facts and the rule it used. On `ask_person` Pulse isn't sure: call `ask_humans` with the same case. About three seconds. $0.03 per live decision after your first 500; free with a test key.
 
 **`ask_humans`**: send a judgment call to verified people.
 

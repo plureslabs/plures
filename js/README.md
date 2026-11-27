@@ -1,6 +1,6 @@
 # plures
 
-The official JavaScript and TypeScript client for [Plures](https://plures.si): human judgment as an API for AI agents. Send a decision to ID verified people and get their consensus back before your agent acts. A human in the loop step you can call like any other API.
+The official JavaScript and TypeScript client for [Plures](https://plures.si): human judgment at agent scale. Plures Pulse, our LLM as a judge, decides your agent's judgment calls the way your team would, and the calls it isn't sure about go to ID verified people or your own team.
 
 ```bash
 npm install plures
@@ -8,7 +8,29 @@ npm install plures
 
 Works in Node 18+, Bun, Deno and edge runtimes. No dependencies.
 
-## Use it
+## Plures Pulse: decide a judgment call
+
+```ts
+import { Plures } from "plures";
+
+const plures = new Plures(); // reads PLURES_API_KEY
+
+const pulse = await plures.pulse({
+  question: "Refund $129.00 on headphones, 41 days after delivery, unopened?",
+  context: "Customer for 3 years. Two refunds in the last 90 days.",
+  category: "refunds",
+  policy: "Refunds within 30 days. Unopened items within 45 days.",
+});
+
+pulse.decision;    // "approve" | "edit" | "reject" | "ask_person"
+pulse.amount;      // the corrected amount on an edit
+pulse.explanation; // Pulse's short check of the facts
+pulse.unsure;      // true on ask_person: send the case to people with verify()
+```
+
+Pulse reads your policy, your team's closest past decisions, your playbook and the rules it learned from them. In our benchmark Pulse decided like the team 96.2% of the time once it had the team's past decisions, and up to 99.8% when tuned on one team's own history. It answers in about three seconds and costs $0.03 per live decision after your first 500; test keys are free.
+
+## Ask people
 
 ```ts
 import { Plures } from "plures";
@@ -25,7 +47,7 @@ const task = await plures.verify({
 console.log(task.result?.answer, task.result?.agreement);
 ```
 
-Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys complete at once with the first option (or `metadata.test_answer`) and never reach real people. Set `metadata.test_outcome` to `split`, `tie`, `expired` or `slow` to test the cases you route to your own team.
+Get a free test key at [plures.si](https://plures.si/signup). Test keys complete at once with the first option (or `metadata.test_answer`) and never reach real people. Set `metadata.test_outcome` to `split`, `tie`, `expired` or `slow` to test the cases you route to your own team.
 
 ## Judgment: no fixed right answer
 
@@ -97,7 +119,7 @@ Without a `payment` function, a keyless request throws `PaymentRequiredError` wi
 - `plures.maps.createKey(app, { label? })`, `.keys(app)`, `.revokeKey(app, id)`: map keys for CI, which can only read and upload that app's map. `.workflow(app, branch?)` returns the GitHub Action that maps on every push; `npx plures map workflow` writes it to `.github/workflows/plures-map.yml`. Or use **Map with GitHub** on the app's map page and Plures opens the pull request for you, then **Turn on mapping** merges it. `plures.maps.startRun(app)` and `.runs(app)`: in CI with no Claude key, `npx plures map` starts a run where Plures runs Claude (Claude at cost, at most $5 a run). `plures.maps.estimate(app, "map" | "drift")` shows what the next map or drift fix costs before it starts: the Plures engine fee, 5¢ a step of the app's map (the first map of each app is free; branch maps are free), plus Claude at cost when Plures runs it. `npx plures map` and `npx plures drift fix` check it first and stop if your credit can't cover it. A drift fix is paid by outcome: each quality point it wins back, once people have graded the new outputs, costs 20¢ a step of the map ($3 to $15 a point), at most $500 a fix, with Claude included; no better or worse is free.
 - `npx plures init [--app id]` sets a project up in one command. It reads `PLURES_API_KEY` from the environment or your `.env` file, shows the app's setup plan (the checks you turned on and where each goes, the line that sends outputs to be graded, the line that logs answers) and asks before it writes anything. On a yes, Claude Code makes the changes on your machine, on a new branch; it can read and edit files and runs nothing, and nothing is pushed. `npx plures init --print` prints the same plan as instructions and changes nothing, which is also what a coding agent gets when it runs the command. `plures.apps.setup(app)` returns the plan.
 - New in 1.35: `npx plures init` is the whole setup. On a project with no map it maps it first, then lists the few checks Plures recommends and turns them on when you say yes (the rest stay in your dashboard), then hands the code changes to Claude Code on a new branch. The map file it writes goes into that same commit, and a key or Claude token pasted with a stray line break no longer breaks the run.
-- New in 1.36: `npx plures try [check]` sends one test check with made up example data and shows the answer come back. `npx plures init` offers it as its last step. With a test key it costs nothing: a check that goes to your own team arrives in Decisions marked as a test, and one that goes to verifiers is answered by simulated people.
+- New in 1.37: `npx plures try [check]` sends one test check with made up example data and shows the answer come back. `npx plures init` offers it as its last step. With a test key it costs nothing: a check that goes to your own team arrives in Decisions marked as a test, and one that goes to verifiers is answered by simulated people.
 - `npx plures improve [--app id]` improves an agent that is already running, from what people decided. It shows the app's improve plan: your team's standards the prompt should follow, the decisions an audit found wrong, the questions people settled (it adds `use_precedent: true`) and the ones they split on (it passes more context). It asks before it writes; on a yes, Claude Code makes the changes on a new branch and nothing is pushed. `--print` prints the plan as instructions for any coding agent. With nothing to change yet, it lists what to do first in your dashboard. In code: `plures.apps.improve(app)`.
 - In your terminal, `npx plures map` opens your map page so you can watch it build (`--no-open` to skip), keeps one live line of what it's reading, and ends by drawing the map's flows with the checks Plures suggests. On GitHub and other CI it prints a plain log.
 - `npx plures map` shows each file as Claude Code reads it and sends the file names (never their contents) to Plures, so the map page shows the reading live and the map builds itself when it lands. `plures.maps.progress(app, { session, phase, events })` is the call behind it.

@@ -1,13 +1,15 @@
 {
   "name": "plures-mcp",
-  "version": "1.16.1",
+  "version": "1.17.0",
   "mcpName": "io.github.plureslabs/plures",
-  "description": "MCP server for Plures: lets any AI agent ask ID verified people to check a decision before it acts.",
+  "description": "MCP server for Plures: Plures Pulse, an LLM as a judge, decides your agent's judgment calls like your team would, and ID verified people take the hard ones.",
   "keywords": [
     "mcp",
     "mcp-server",
     "model-context-protocol",
     "human-in-the-loop",
+    "llm-as-a-judge",
+    "plures-pulse",
     "hitl",
     "ai-agents",
     "human-review",

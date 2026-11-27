@@ -1,6 +1,31 @@
 # Plures
 
-**Human judgment as an API for AI agents.** Plures sends a decision your agent isn't sure about to ID verified people. Several answer independently, each confirmed with Face ID, and your agent gets their consensus back before it acts.
+**Human judgment at agent scale.** Plures Pulse 1.0, our LLM as a judge, makes your agent's judgment calls the way your team would: approve, edit, reject or ask a person. It reads your written policy, your team's past decisions and the rules it learns from them, and answers in about three seconds. The calls it isn't sure about go to people, your own team or ID verified people, and every answer they give makes Pulse better. In our benchmark Pulse decided like the team 96.2% of the time once it had the team's past decisions, and up to 99.8% when tuned on one team's own history.
+
+```ts
+import { Plures } from "plures";
+
+const plures = new Plures(); // reads PLURES_API_KEY
+
+const pulse = await plures.pulse({
+  question: "Refund $129.00 on headphones, 41 days after delivery, unopened?",
+  category: "refunds",
+  policy: "Refunds within 30 days. Unopened items within 45 days.",
+});
+
+if (pulse.unsure) {
+  // Pulse isn't sure: people decide, and their answer teaches Pulse
+  const task = await plures.verify({ question: "Approve this refund?", context: "...", options: ["Approve", "Reject"], route: "team" });
+} else if (pulse.decision === "approve") {
+  await issueRefund();
+}
+```
+
+Pulse costs $0.03 per live decision after your first 500, and nothing with a test key.
+
+## People, when it counts
+
+Plures sends a decision your agent isn't sure about to ID verified people. Several answer independently, each confirmed with Face ID, and your agent gets their consensus back before it acts.
 
 Use it as the human in the loop (HITL) step for the calls where a wrong answer costs trust: grading whether an AI answer is correct and on policy, reading a customer's tone, catching a listing that doesn't match its photo, moderating an edge case. Money and account decisions, like approving a refund or checking an invoice against its order, go straight to your own team with `route: "team"`.
 
@@ -13,7 +38,9 @@ Use it as the human in the loop (HITL) step for the calls where a wrong answer c
 
 [![Plures MCP server](https://mcprush.com/badge/plures-mcp/card.svg)](https://mcprush.com/to/plures-mcp?ref=badge)
 
-Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys answer instantly without reaching real people, so you can build the whole flow first.
+[![plureslabs/plures MCP server](https://glama.ai/mcp/servers/plureslabs/plures/badges/score.svg)](https://glama.ai/mcp/servers/plureslabs/plures)
+
+Get a free test key at [plures.si](https://plures.si/signup). Test keys answer instantly without reaching real people, so you can build the whole flow first.
 
 ## Quickstart
 

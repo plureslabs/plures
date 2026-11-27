@@ -45,7 +45,7 @@ const FILE = "plures.map.json";
 function die(msg: string): never { console.error(coral(msg)); process.exit(1); }
 
 function client() {
-  if (!key) die("Set PLURES_API_KEY (a free pk_test_ key works), or pass --key. Get one at https://plures.si/?for=developers#join");
+  if (!key) die("Set PLURES_API_KEY (a free pk_test_ key works), or pass --key. Get one at https://plures.si/signup");
   return new Plures(key, { baseUrl: base, app, userAgent: `plures-cli/${VERSION}${process.env.GITHUB_ACTIONS ? " github-actions" : ""}` });
 }
 
