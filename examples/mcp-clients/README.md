@@ -1,6 +1,6 @@
 # Add Plures to an MCP client
 
-Every client below runs the same server with `npx -y plures-mcp`. Put your key in `PLURES_API_KEY`; a free `pk_test_` key from [plures.si](https://plures.si/?for=developers#join) answers instantly without real people.
+Every client below runs the same server with `npx -y plures-mcp`. Put your key in `PLURES_API_KEY`; a free `pk_test_` key from [plures.si](https://plures.si/signup) answers instantly without real people.
 
 ## Claude Desktop
 

@@ -1,6 +1,6 @@
 # plures
 
-The official JavaScript and TypeScript client for [Plures](https://plures.si): human judgment as an API for AI agents. Send a decision to ID verified people and get their consensus back before your agent acts. A human in the loop step you can call like any other API.
+The official JavaScript and TypeScript client for [Plures](https://plures.si): human judgment at agent scale. Plures Pulse, our LLM as a judge, decides your agent's judgment calls the way your team would, and the calls it isn't sure about go to ID verified people or your own team.
 
 ```bash
 npm install plures
@@ -8,7 +8,29 @@ npm install plures
 
 Works in Node 18+, Bun, Deno and edge runtimes. No dependencies.
 
-## Use it
+## Plures Pulse: decide a judgment call
+
+```ts
+import { Plures } from "plures";
+
+const plures = new Plures(); // reads PLURES_API_KEY
+
+const pulse = await plures.pulse({
+  question: "Refund $129.00 on headphones, 41 days after delivery, unopened?",
+  context: "Customer for 3 years. Two refunds in the last 90 days.",
+  category: "refunds",
+  policy: "Refunds within 30 days. Unopened items within 45 days.",
+});
+
+pulse.decision;    // "approve" | "edit" | "reject" | "ask_person"
+pulse.amount;      // the corrected amount on an edit
+pulse.explanation; // Pulse's short check of the facts
+pulse.unsure;      // true on ask_person: send the case to people with verify()
+```
+
+Pulse reads your policy, your team's closest past decisions, your playbook and the rules it learned from them. In our benchmark Pulse decided like the team 96.2% of the time once it had the team's past decisions, and up to 99.8% when tuned on one team's own history. It answers in about three seconds and costs $0.03 per live decision after your first 500; test keys are free.
+
+## Ask people
 
 ```ts
 import { Plures } from "plures";
@@ -25,7 +47,7 @@ const task = await plures.verify({
 console.log(task.result?.answer, task.result?.agreement);
 ```
 
-Get a free test key at [plures.si](https://plures.si/?for=developers#join). Test keys complete at once with the first option (or `metadata.test_answer`) and never reach real people. Set `metadata.test_outcome` to `split`, `tie`, `expired` or `slow` to test the cases you route to your own team.
+Get a free test key at [plures.si](https://plures.si/signup). Test keys complete at once with the first option (or `metadata.test_answer`) and never reach real people. Set `metadata.test_outcome` to `split`, `tie`, `expired` or `slow` to test the cases you route to your own team.
 
 ## Judgment: no fixed right answer
 

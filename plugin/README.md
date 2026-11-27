@@ -9,7 +9,7 @@ Plures is human judgment as an API for AI agents. This plugin teaches Claude whe
 
 ## Setup
 
-When you install the plugin, Claude asks for your Plures API key. A free `pk_test_` key from [plures.si](https://plures.si/?for=developers#join) answers instantly with a simulated result and never reaches real people. A `pk_live_` key sends tasks to verified people, paid from your prepaid Plures credit.
+When you install the plugin, Claude asks for your Plures API key. A free `pk_test_` key from [plures.si](https://plures.si/signup) answers instantly with a simulated result and never reaches real people. A `pk_live_` key sends tasks to verified people, paid from your prepaid Plures credit.
 
 ## What it runs and sends
 

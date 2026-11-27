@@ -4,7 +4,7 @@ Plures gives an agent an `ask_humans` tool: it sends a decision to ID verified p
 
 ## 1. Get an API key
 
-Ask the user for a Plures API key. They get one free at https://plures.si/?for=developers#join. A test key starts with `pk_test_` and answers instantly without reaching real people, so it is safe for trying the server. Live keys start with `pk_live_`.
+Ask the user for a Plures API key. They get one free at https://plures.si/signup. A test key starts with `pk_test_` and answers instantly without reaching real people, so it is safe for trying the server. Live keys start with `pk_live_`.
 
 ## 2. Add the server
 
