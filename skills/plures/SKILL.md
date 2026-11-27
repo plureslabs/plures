@@ -1,13 +1,33 @@
 ---
 name: plures
-description: Add a human in the loop to an AI agent with Plures. Use when an agent should get a person's judgment before acting (approvals, sign off, human review, HITL, escalation, checking an AI answer, tone, moderation, refunds, A or B preference, design or video feedback) or when the user mentions Plures, plures.si, ask_humans or verified human review.
+description: Add your team's judgment to an AI agent with Plures. Plures Pulse (an LLM as a judge) decides judgment calls like the team would and people take the hard ones. Use when an agent should get a person's judgment before acting (approvals, sign off, human review, HITL, escalation, checking an AI answer, tone, moderation, refunds, A or B preference, design or video feedback) or when the user mentions Plures, plures.si, ask_humans or verified human review.
 license: MIT
 metadata:
   homepage: https://plures.si
   docs: https://plures.si/docs
 ---
 
-# Plures: human judgment as an API
+# Plures: human judgment at agent scale
+
+## Plures Pulse first
+
+Plures Pulse is Plures' LLM as a judge. Before an agent acts on a judgment call (a refund, a credit, an exception, whether an answer is on policy), ask Pulse. It reads the developer's written policy, their team's past decisions and the rules it learned from them, and answers `approve`, `edit` (with the corrected amount), `reject` or `ask_person` in about three seconds. On `ask_person` (`unsure: true`) it isn't sure: send the case to people as described below, and their answer teaches Pulse. $0.03 per live decision after the account's first 500; free with a test key.
+
+```ts
+const pulse = await plures.pulse({ question, context, category: "refunds", policy });
+if (pulse.unsure) { /* ask people: plures.verify(...) */ }
+else if (pulse.decision === "approve") { /* act */ }
+```
+
+```python
+pulse = plures.ask_pulse(question, context=context, category="refunds", policy=policy)
+if pulse["unsure"]:
+    ...  # ask people: plures.verify(...)
+```
+
+With MCP, call the `ask_pulse` tool, then `ask_humans` when it answers ask_person. Over REST: `POST https://plures.si/api/v1/pulse` with `question` and optionally `context`, `category`, `policy`, `client`.
+
+## People, when it counts
 
 Plures sends a decision an agent isn't sure about to ID verified people. Several answer independently, each answer confirmed with Face ID, a fingerprint or a passkey, and the agent gets their consensus back before it acts. Decisions the people split on can go to the developer's own team.
 
@@ -26,7 +46,7 @@ Don't use it for anything a lookup, a rule or a test can settle. Tasks are shown
 
 ## Setup
 
-1. Get a free test key at https://plures.si/?for=developers#join and set `PLURES_API_KEY`. Test keys (`pk_test_`) answer at once without reaching people; live keys (`pk_live_`) reach real verifiers from prepaid credit.
+1. Get a free test key at https://plures.si/signup and set `PLURES_API_KEY`. Test keys (`pk_test_`) answer at once without reaching people; live keys (`pk_live_`) reach real verifiers from prepaid credit.
 2. Install the SDK: `npm install plures` (Node 18+, Bun, Deno, edge) or `pip install plures` (Python 3.8+, no dependencies).
 3. For MCP clients (Claude Code, Claude Desktop, Cursor, VS Code), add the server instead: `claude mcp add plures --env PLURES_API_KEY=pk_test_... -- npx -y plures-mcp`. It gives the agent an `ask_humans` tool.
 

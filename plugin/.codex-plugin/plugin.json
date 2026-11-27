@@ -1,7 +1,7 @@
 {
   "name": "plures",
   "version": "1.2.0",
-  "description": "Human in the loop for AI agents: ask ID verified people to check a decision before your agent acts. Adds the Plures skill and the plures-mcp server (ask_humans).",
+  "description": "Plures Pulse, an LLM as a judge, decides your agent's judgment calls like your team would, and ID verified people take the hard ones. Adds the Plures skill and the plures-mcp server.",
   "author": { "name": "Plures Labs", "email": "hello@plures.si", "url": "https://plures.si" },
   "homepage": "https://plures.si/docs",
   "repository": "https://github.com/plureslabs/plures",

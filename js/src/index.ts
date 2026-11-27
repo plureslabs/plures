@@ -331,7 +331,40 @@ export type Balance = {
 };
 export type WebhookEvent = { id: string; type: "task.completed" | "task.expired" | "task.canceled"; created_at: string; data: Task };
 
-export const VERSION = "1.35.1";
+export const VERSION = "1.36.0";
+
+/** What you send Plures Pulse: the judgment call, and optionally what the agent knows, the kind of case and your written policy. */
+export type AskPulse = {
+  question: string;
+  /** What the agent knows about the case, as plain text. */
+  context?: string;
+  /** The kind of case (for example "refunds"). Send it so Pulse can use the rules it learned for that kind. */
+  category?: string;
+  /** Your written rules for this kind of case. */
+  policy?: string;
+  /** Your company's name. */
+  client?: string;
+  options?: (string | { id: string; label?: string })[];
+  app?: string;
+};
+/** Plures Pulse's decision. `unsure` is true when it answers ask_person: send the case to people with verify(). */
+export type PulseDecision = {
+  object: "pulse_decision"; mode: "live" | "test";
+  decision: "approve" | "edit" | "reject" | "ask_person";
+  /** The corrected amount when decision is "edit", otherwise null. */
+  amount: number | null;
+  /** Pulse's short check of the facts. */
+  explanation: string;
+  unsure: boolean;
+  model: string;
+  /** What decided: "pulse", or the model that answered while Pulse was starting after a quiet spell. */
+  engine: string;
+  seconds: number;
+  rule_used: string | null; precedents_used: number; playbook_used: boolean; own_pulse: boolean;
+  /** 0 for test keys and your first 500 live decisions, then 3. */
+  charged_cents: number;
+  timing_ms?: { prepare: number; decide: number; record: number };
+};
 
 export type GitHubLink = {
   object: "github_link"; app: string; installed: boolean; install_url: string; connected: boolean;
@@ -376,7 +409,7 @@ export class Plures {
   constructor(apiKey?: string, opts: { baseUrl?: string; app?: string; userAgent?: string; payment?: PayForDecision } = {}) {
     const key = apiKey ?? (typeof process !== "undefined" ? process.env?.PLURES_API_KEY : undefined);
     this.payment = opts.payment ?? null;
-    if (!key && !this.payment) throw new Error("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/?for=developers#join");
+    if (!key && !this.payment) throw new Error("Pass your Plures API key, or set PLURES_API_KEY. Get a free test key at https://plures.si/signup");
     this.apiKey = key ?? "";
     this.ua = opts.userAgent ?? `plures-js/${VERSION}`;
     this.app = opts.app ?? (typeof process !== "undefined" ? process.env?.PLURES_APP : undefined) ?? null;
@@ -742,6 +775,18 @@ export class Plures {
 
   /** Your prepaid credit. A live task that could cost more than available_cents is refused with a 402 insufficient_credits error. */
   balance = () => this.req<Balance>("GET", "/api/v1/balance");
+
+  /**
+   * Plures Pulse, our LLM as a judge, decides a judgment call the way your team would: approve,
+   * edit (with the corrected amount), reject or ask_person. It reads your written policy (if you
+   * send it), your team's closest past decisions, your playbook and the rules it learned from them.
+   * Call it right before your agent acts. When `unsure` is true, send the case to people with
+   * verify() or judge(); their answer teaches Pulse. Answers in about three seconds. $0.03 per live
+   * decision after your first 500; free with a test key.
+   */
+  pulse(params: AskPulse): Promise<PulseDecision> {
+    return this.req<PulseDecision>("POST", "/api/v1/pulse", params);
+  }
 
   /**
    * Runs a check from your app's map and waits for the decision. Send the data by name; the check
