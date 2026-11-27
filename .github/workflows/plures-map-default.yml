@@ -11,19 +11,8 @@
 name: Plures map (default)
 
 on:
-  push:
-    # every branch: main is the map; others are compared with it on their pull request.
-    # Not the branch Plures sets this workflow up on: merging it maps main anyway.
-    branches: ["**", "!plures/map-*"]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - "**/*.css"
-      - "**/*.scss"
-      - "test/**"
-      - "tests/**"
-      - "**/*.test.*"
-      - "**/*.spec.*"
+  # No push trigger in this repo: a map runs only when someone asks for one (Run workflow here, or
+  # Map it now in the Plures dashboard), so pushes to the SDK and plugins do not spend credit.
   workflow_dispatch:
   repository_dispatch: # from the Plures dashboard: Map it now, Add to my code, and Fix the drift
     types: [plures-map-default, plures-check-default, plures-drift-default]
