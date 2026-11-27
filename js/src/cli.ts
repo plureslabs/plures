@@ -462,16 +462,20 @@ ${dim("Test keys cost nothing and reach no real people.")}`);
   if (plan.answers) console.log(`  ${dim(String(++n).padStart(2))}  Answers are logged, so the ones that went wrong get reviewed`);
   console.log(`\n  ${dim("It runs on your machine. Your code is not sent to Plures.")}\n  ${dim("Changes go on a new branch. Nothing is pushed.")}\n  ${dim(key.startsWith("pk_test_") ? "This is a test key: it costs nothing and reaches no real people." : "This is a live key: checks reach real people and are charged.")}\n`);
 
-  await handOff({ again, instructions: plan.instructions, question: "Let Claude Code make these changes on a new branch?", yes, before: () => ensureQuality(plan), branch: "setup",
+  const done = await handOff({ again, instructions: plan.instructions, question: "Let Claude Code make these changes on a new branch?", yes, before: () => ensureQuality(plan), branch: "setup",
     message: `Set up Plures for ${plan.app.name}: ${plan.checks.length} ${plan.checks.length === 1 ? "check" : "checks"}`, live: plan.urls.agent });
+  if (!done) return;
+  // Unattended runs don't wait on a person; they get the one line that does it later.
+  if (!yes && process.stdout.isTTY && process.stdin.isTTY) await tryCheck(plan, app, { ask: true });
+  else console.log(`  See a check arrive: ${cyan(`npx plures try${app !== "default" ? ` --app ${app}` : ""}`)}\n`);
 }
 
 // The last part of init and improve: with Claude Code installed and a yes, Claude Code makes the
 // changes here, on a new branch, with nothing pushed. It can read and edit files and run nothing.
-async function handOff(o: { again: string; instructions: string; question: string; yes: boolean; before?: () => Promise<void>; branch: string; message: string; live: string }) {
+async function handOff(o: { again: string; instructions: string; question: string; yes: boolean; before?: () => Promise<void>; branch: string; message: string; live: string }): Promise<boolean> {
   if (!hasClaude()) {
     console.log(`  Claude Code isn't installed here, so this command can't make the changes itself.\n  Give your coding agent this line, and it will:\n\n    ${cyan(`Run \`${o.again} --print\` in this project and follow what it prints.`)}\n`);
-    return;
+    return false;
   }
   const git = (...a: string[]) => spawnSync("git", a, { encoding: "utf8" });
   if (git("rev-parse", "--is-inside-work-tree").status !== 0) die("This folder isn't a git repository. Run it in your project, so the changes can go on a branch you review.");
@@ -480,7 +484,7 @@ async function handOff(o: { again: string; instructions: string; question: strin
   if (others.length) die(`This repo has changes that aren't committed:\n\n${others.slice(0, 8).map((l) => `    ${l.trim()}`).join("\n")}${others.length > 8 ? `\n    and ${others.length - 8} more` : ""}\n\nCommit or stash them first, so the Plures changes stay separate and easy to review. Then run ${o.again} again: it picks up where it stopped.`);
   if (!o.yes && !(await ask(`  ${o.question} ${dim("[Y/n]")} `))) {
     console.log(`\n  Nothing was changed. To see the full instructions: ${cyan(`${o.again} --print`)}\n`);
-    return;
+    return false;
   }
   if (o.before) await o.before();
   console.log(`\n  ${dim("Claude Code is making the changes. It can read and edit files here, and run nothing.")}\n`);
@@ -500,6 +504,42 @@ async function handOff(o: { again: string; instructions: string; question: strin
   Review it:   ${cyan("git show")}
   Undo it:     ${cyan(`git checkout - && git branch -D ${br}`)}
   See it live: ${cyan(o.live)}\n`);
+  return true;
+}
+
+// ---------- try ----------
+// The moment it becomes real: one test check, sent from here with invented example data, and the
+// answer coming back. Test keys only, so it costs nothing; a check that goes to the developer's own
+// team does reach them, in Decisions, marked as a test.
+async function tryCheck(plan: SetupPlan, app: string, o: { ask: boolean; id?: string }) {
+  const c = o.id ? plan.checks.find((x) => x.id === o.id) : plan.checks.find((x) => x.route === "team") ?? plan.checks[0];
+  if (!c) { if (o.id) die(`There is no check "${o.id}" turned on for ${plan.app.name}. The ones that are on: ${plan.checks.map((x) => x.id).join(", ") || "none"}.`); return; }
+  if (!key!.startsWith("pk_test_")) {
+    console.log(`  ${dim("To see a check arrive without reaching real people or being charged, run this with a test key:")}\n  ${cyan(plan.urls.keys)}\n`);
+    return;
+  }
+  const team = c.route === "team";
+  if (o.ask) {
+    console.log(`  ${bold("See one arrive.")} This sends one test check with made up example data${team ? ", to your own team" : ""}:\n\n    ${c.question ? `"${c.question}"` : c.step}\n`);
+    if (!(await ask(`  Send it now? ${dim("[Y/n]")} `))) { console.log(`\n  Any time: ${cyan(`npx plures try${app !== "default" ? ` --app ${app}` : ""}`)}\n`); return; }
+  }
+  const started = Date.now();
+  if (team) console.log(`\n  ${cyan("→")} Sending it to you or a teammate, marked as a test. Answer it here:\n\n    ${cyan(plan.urls.decisions ?? "https://plures.si/decisions")}\n\n  ${dim("Waiting up to 3 minutes for the answer. Press Ctrl C to stop waiting; the check stays open.")}`);
+  let r;
+  try { r = await client().check(c.id, c.sample ?? {}, { always: true, metadata: { source: "plures try" } }, { timeoutMs: team ? 180_000 : 30_000 }); }
+  catch (e) { console.log(`\n  The test check didn't go through: ${e instanceof PluresError ? e.message : String(e)}\n  ${dim("Your code changes are not affected.")}\n`); return; }
+  const secs = Math.max(1, Math.round((Date.now() - started) / 1000));
+  if (r.timed_out) console.log(`\n  Nobody answered yet. It stays open in Decisions, and your code would ${r.on_timeout === "proceed" ? "go ahead" : "hold the step"} at this point.\n`);
+  else if (!r.checked) console.log(`\n  ${cyan("✓")} Plures skipped this one (${r.skipped_because ?? "not needed this time"}), so your code goes ahead with "${r.answer}".\n`);
+  else console.log(`\n  ${cyan("✓")} Answer: ${bold(`"${r.answer}"`)} ${dim(`in ${secs}s${team ? "" : ", from simulated people because this is a test key"}`)}\n  ${dim("That is what your code gets back from plures.check, and what it acts on.")}\n\n  See it:  ${cyan(plan.urls.agent)}\n`);
+}
+
+async function tryIt(id?: string) {
+  if (!key) die("No API key. Set PLURES_API_KEY or pass --key.");
+  let plan: SetupPlan;
+  try { plan = await client().apps.setup(app); } catch (e) { die(e instanceof PluresError ? e.message : "Couldn't reach Plures. Check your connection and try again."); }
+  if (!plan.checks.length) { console.log(`  No checks are turned on for ${plan.app.name} yet. Run ${cyan(`npx plures init${app !== "default" ? ` --app ${app}` : ""}`)} first.\n`); return; }
+  await tryCheck(plan, app, { ask: false, id });
 }
 
 // ---------- improve ----------
@@ -651,11 +691,12 @@ Don't run the app or tests, and never include secrets or customer data in ${DIAG
 async function main() {
   const [cmd, sub, arg] = argv;
   if (cmd === "init") return init();
+  if (cmd === "try") return tryIt(sub && !sub.startsWith("--") ? sub : undefined);
   if (cmd === "improve") return improve();
   if (cmd === "check" && sub === "add") return checkAdd(arg);
   if (cmd === "drift" && sub === "fix") return driftFix(arg);
   if (cmd !== "map") {
-    console.log(`Plures\n\n  npx plures init [--app <id>]         set this project up: shows every change, asks, then applies it\n  npx plures init --print              print the same plan as instructions for any coding agent\n  npx plures improve [--app <id>]      improve your agent from your standards, audit and settled questions\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n  npx plures drift fix <case>          find why quality fell and fix it, on a new branch\n\nDocs: https://plures.si/docs`);
+    console.log(`Plures\n\n  npx plures init [--app <id>]         set this project up: shows every change, asks, then applies it\n  npx plures try [check]               send one test check and watch the answer come back\n  npx plures init --print              print the same plan as instructions for any coding agent\n  npx plures improve [--app <id>]      improve your agent from your standards, audit and settled questions\n  npx plures map [--app <id>]          map this repo's agent and upload it\n  npx plures map upload [file]         upload ${FILE}\n  npx plures map guide                 print the steps for any coding agent\n  npx plures map workflow              add a GitHub Action that maps on every push\n  npx plures map github connect        let Plures add that Action by pull request\n  npx plures map github on             merge it, which turns mapping on\n  npx plures map github run            map now on GitHub, and watch it build\n  npx plures check add <id>            put a check into your code, on a new branch\n  npx plures drift fix <case>          find why quality fell and fix it, on a new branch\n\nDocs: https://plures.si/docs`);
     return;
   }
   if (sub === "upload") return upload(arg ?? FILE);
