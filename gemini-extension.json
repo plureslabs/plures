@@ -13,7 +13,7 @@
   "mcpServers": {
     "plures": {
       "command": "npx",
-      "args": ["-y", "plures-mcp@1.17.0"]
+      "args": ["-y", "plures-mcp@1.18.0"]
     }
   }
 }
